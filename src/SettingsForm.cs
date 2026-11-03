@@ -7,7 +7,7 @@ namespace QuickCut
 {
     class SettingsForm : Form
     {
-        static readonly string[] TypeNames = { "Programma / bestand / map", "Website / link", "Media-actie (Spotify e.d.)", "Toetscombinatie" };
+        
 
         readonly App app;
         readonly Config work;
@@ -29,7 +29,7 @@ namespace QuickCut
             work = cfg.Clone();
             using (Graphics g = Graphics.FromHwnd(IntPtr.Zero)) sc = g.DpiX / 96f;
 
-            Text = "QuickCut - Instellingen";
+            Text = Str.SettingsTitle;
             Font = new Font("Segoe UI", 9f);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -40,35 +40,35 @@ namespace QuickCut
             Icon = Art.CreateIcon(32);
 
             // Hotkey
-            Add(this, new Label { Text = "Sneltoets om de ring te openen", AutoSize = true }, 16, 14, 300, 18);
+            Add(this, new Label { Text = Str.HotkeyLabel, AutoSize = true }, 16, 14, 300, 18);
             hotkeyBox = Add(this, new HotkeyBox(true), 16, 36, 200, 24);
             hotkeyBox.Combo = work.Hotkey;
             hotkeyBox.Enter += delegate { app.SuspendHotkey(); };
             hotkeyBox.Leave += delegate { app.ResumeHotkey(); };
             hotkeyBox.ComboChanged += delegate { work.Hotkey = hotkeyBox.Combo; };
-            Button btnDefault = Add(this, new Button { Text = "Standaard" }, 224, 35, 90, 26);
+            Button btnDefault = Add(this, new Button { Text = Str.Default }, 224, 35, 90, 26);
             btnDefault.Click += delegate { hotkeyBox.Combo = Config.DefaultHotkey; work.Hotkey = Config.DefaultHotkey; };
             Add(this, new Label
             {
-                Text = "Ingedrukt houden, naar een knop bewegen en loslaten kiest die knop. Kort tikken laat de ring open: klik of 1-9 = knop, Spatie = midden, scrollen = volume, Esc = sluiten.",
+                Text = Str.Hint,
                 ForeColor = SystemColors.GrayText
             }, 16, 64, 490, 34);
-            chkMouse = Add(this, new CheckBox { Text = "Ook openen met 2x rechtermuisklik", AutoSize = true }, 16, 104, 240, 22);
+            chkMouse = Add(this, new CheckBox { Text = Str.MouseTrigger, AutoSize = true }, 16, 104, 240, 22);
             chkMouse.Checked = work.MouseTrigger;
             chkMouse.CheckedChanged += delegate { work.MouseTrigger = chkMouse.Checked; chkFullscreen.Enabled = chkMouse.Checked; };
-            chkFullscreen = Add(this, new CheckBox { Text = "Niet in volledig scherm (games)", AutoSize = true }, 270, 104, 240, 22);
+            chkFullscreen = Add(this, new CheckBox { Text = Str.SkipFullscreen, AutoSize = true }, 270, 104, 240, 22);
             chkFullscreen.Checked = work.SkipFullscreen;
             chkFullscreen.Enabled = work.MouseTrigger;
             chkFullscreen.CheckedChanged += delegate { work.SkipFullscreen = chkFullscreen.Checked; };
 
             // List of buttons
-            Add(this, new Label { Text = "Knoppen in de ring", AutoSize = true }, 16, 134, 220, 18);
+            Add(this, new Label { Text = Str.ButtonsLabel, AutoSize = true }, 16, 134, 220, 18);
             list = Add(this, new ListBox { IntegralHeight = false }, 16, 156, 220, 252);
             list.SelectedIndexChanged += delegate { if (!loading) { LoadEditor(); UpdateButtons(); } };
-            btnAdd = Add(this, new Button { Text = "Toevoegen" }, 16, 414, 106, 28);
-            btnRemove = Add(this, new Button { Text = "Verwijderen" }, 130, 414, 106, 28);
-            btnUp = Add(this, new Button { Text = "Omhoog" }, 16, 446, 106, 28);
-            btnDown = Add(this, new Button { Text = "Omlaag" }, 130, 446, 106, 28);
+            btnAdd = Add(this, new Button { Text = Str.Add }, 16, 414, 106, 28);
+            btnRemove = Add(this, new Button { Text = Str.Remove }, 130, 414, 106, 28);
+            btnUp = Add(this, new Button { Text = Str.MoveUp }, 16, 446, 106, 28);
+            btnDown = Add(this, new Button { Text = Str.MoveDown }, 130, 446, 106, 28);
             btnAdd.Click += delegate
             {
                 work.Items.Add(new RingItem(ActionType.Program, "", ""));
@@ -86,21 +86,21 @@ namespace QuickCut
             btnDown.Click += delegate { Swap(list.SelectedIndex - 1, list.SelectedIndex); };
 
             // Editor
-            editBox = Add(this, new GroupBox { Text = "Knop bewerken" }, 252, 148, 252, 294);
-            Add(editBox, new Label { Text = "Soort", AutoSize = true }, 12, 24, 200, 18);
+            editBox = Add(this, new GroupBox { Text = Str.EditButton }, 252, 148, 252, 294);
+            Add(editBox, new Label { Text = Str.Type, AutoSize = true }, 12, 24, 200, 18);
             cmbType = Add(editBox, new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList }, 12, 44, 228, 24);
-            cmbType.Items.AddRange(TypeNames);
-            Add(editBox, new Label { Text = "Naam (tekst in de ring)", AutoSize = true }, 12, 78, 200, 18);
+            cmbType.Items.AddRange(Str.TypeNames);
+            Add(editBox, new Label { Text = Str.Name, AutoSize = true }, 12, 78, 200, 18);
             txtLabel = Add(editBox, new TextBox(), 12, 98, 228, 24);
             lblTarget = Add(editBox, new Label { AutoSize = true }, 12, 132, 228, 18);
             txtTarget = Add(editBox, new TextBox(), 12, 152, 150, 24);
-            btnBrowse = Add(editBox, new Button { Text = "Bladeren..." }, 168, 151, 72, 26);
+            btnBrowse = Add(editBox, new Button { Text = Str.Browse }, 168, 151, 72, 26);
             cmbMedia = Add(editBox, new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList }, 12, 152, 228, 24);
             cmbMedia.Items.AddRange(Actions.MediaNames);
             keysBox = Add(editBox, new HotkeyBox(false), 12, 152, 228, 24);
-            lblArgs = Add(editBox, new Label { Text = "Argumenten (optioneel)", AutoSize = true }, 12, 186, 200, 18);
+            lblArgs = Add(editBox, new Label { Text = Str.Arguments, AutoSize = true }, 12, 186, 200, 18);
             txtArgs = Add(editBox, new TextBox(), 12, 206, 228, 24);
-            btnTest = Add(editBox, new Button { Text = "Testen" }, 12, 252, 100, 28);
+            btnTest = Add(editBox, new Button { Text = Str.Test }, 12, 252, 100, 28);
 
             cmbType.SelectedIndexChanged += delegate { if (!loading) ChangeType((ActionType)cmbType.SelectedIndex); };
             txtLabel.TextChanged += delegate { if (!loading && Current != null) { Current.Label = txtLabel.Text; UpdateListText(); } };
@@ -131,10 +131,10 @@ namespace QuickCut
             };
 
             // Bottom
-            chkAutostart = Add(this, new CheckBox { Text = "Starten met Windows", AutoSize = true }, 16, 486, 200, 22);
+            chkAutostart = Add(this, new CheckBox { Text = Str.StartWithWindows, AutoSize = true }, 16, 486, 200, 22);
             chkAutostart.Checked = Autostart.IsEnabled();
-            Button btnSave = Add(this, new Button { Text = "Opslaan" }, 318, 480, 90, 30);
-            Button btnCancel = Add(this, new Button { Text = "Annuleren" }, 414, 480, 90, 30);
+            Button btnSave = Add(this, new Button { Text = Str.Save }, 318, 480, 90, 30);
+            Button btnCancel = Add(this, new Button { Text = Str.Cancel }, 414, 480, 90, 30);
             btnSave.Click += delegate { Save(); };
             btnCancel.Click += delegate { Close(); };
             CancelButton = btnCancel;
@@ -162,11 +162,11 @@ namespace QuickCut
             }
         }
 
-        static string Display(RingItem it) { return string.IsNullOrEmpty(it.Label) ? "(naamloos)" : it.Label; }
+        static string Display(RingItem it) { return string.IsNullOrEmpty(it.Label) ? Str.Unnamed : it.Label; }
 
         string ListText(int i)
         {
-            return i == 0 ? "Midden: " + Display(work.Center) : i + ".  " + Display(work.Items[i - 1]);
+            return i == 0 ? string.Format(Str.Center, Display(work.Center)) : i + ".  " + Display(work.Items[i - 1]);
         }
 
         void RefreshList(int select)
@@ -225,7 +225,7 @@ namespace QuickCut
             editBox.Enabled = it != null;
             if (it == null) return;
             loading = true;
-            editBox.Text = list.SelectedIndex == 0 ? "Middelste knop" : "Knop " + list.SelectedIndex;
+            editBox.Text = list.SelectedIndex == 0 ? Str.CenterButton : string.Format(Str.ButtonN, list.SelectedIndex);
             cmbType.SelectedIndex = (int)it.Type;
             txtLabel.Text = it.Label;
             txtTarget.Text = it.Type == ActionType.Program || it.Type == ActionType.Url ? it.Target : "";
@@ -242,10 +242,10 @@ namespace QuickCut
             cmbMedia.Visible = t == ActionType.Media;
             keysBox.Visible = t == ActionType.Keys;
             lblArgs.Visible = txtArgs.Visible = prog;
-            lblTarget.Text = prog ? "Programma, bestand of map"
-                : t == ActionType.Url ? "Webadres (bijv. youtube.com)"
-                : t == ActionType.Media ? "Actie (werkt met Spotify, YouTube, enz.)"
-                : "Toetsen (klik en druk in)";
+            lblTarget.Text = prog ? Str.TargetProgram
+                : t == ActionType.Url ? Str.TargetUrl
+                : t == ActionType.Media ? Str.TargetMedia
+                : Str.TargetKeys;
         }
 
         void ChangeType(ActionType t)
@@ -265,8 +265,8 @@ namespace QuickCut
         {
             using (OpenFileDialog d = new OpenFileDialog())
             {
-                d.Title = "Kies een programma of snelkoppeling";
-                d.Filter = "Programma's en snelkoppelingen|*.exe;*.lnk;*.bat;*.cmd;*.url|Alle bestanden|*.*";
+                d.Title = Str.BrowseTitle;
+                d.Filter = Str.BrowseFilter;
                 d.DereferenceLinks = false;
                 d.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms);
                 if (d.ShowDialog(this) != DialogResult.OK) return;
@@ -290,9 +290,9 @@ namespace QuickCut
                 string problem = null;
                 uint m; Keys k;
                 if ((it.Type == ActionType.Program || it.Type == ActionType.Url) && it.Target.Trim().Length == 0)
-                    problem = "Vul nog een programma of adres in.";
+                    problem = Str.NeedTarget;
                 else if (it.Type == ActionType.Keys && !KeyCombo.TryParse(it.Target, out m, out k))
-                    problem = "Stel nog een toetscombinatie in.";
+                    problem = Str.NeedCombo;
                 if (problem != null)
                 {
                     list.SelectedIndex = i;
@@ -325,7 +325,7 @@ namespace QuickCut
         public string Combo
         {
             get { return combo; }
-            set { combo = value ?? ""; Text = combo.Length == 0 ? "(klik en druk toetsen in)" : combo; }
+            set { combo = value ?? ""; Text = combo.Length == 0 ? Str.PressKeys : combo; }
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)

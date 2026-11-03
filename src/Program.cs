@@ -65,10 +65,10 @@ namespace QuickCut
             msgWin = new MessageWindow(this);
 
             ContextMenuStrip menu = new ContextMenuStrip();
-            menu.Items.Add("Ring openen", null, delegate { ring.ShowRing(); });
-            menu.Items.Add("Instellingen...", null, delegate { OpenSettings(); });
+            menu.Items.Add(Str.MenuOpenRing, null, delegate { ring.ShowRing(); });
+            menu.Items.Add(Str.MenuSettings, null, delegate { OpenSettings(); });
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Afsluiten", null, delegate { ExitThread(); });
+            menu.Items.Add(Str.MenuExit, null, delegate { ExitThread(); });
 
             tray = new NotifyIcon();
             tray.Icon = Art.CreateIcon(SystemInformation.SmallIconSize.Width);
@@ -77,9 +77,9 @@ namespace QuickCut
             tray.Visible = true;
 
             if (!RegisterHotkey(cfg.Hotkey))
-                Notify("De sneltoets " + cfg.Hotkey + " is al in gebruik door een ander programma. Kies een andere via Instellingen.", true);
+                Notify(string.Format(Str.HotkeyInUse, cfg.Hotkey), true);
             else if (firstRun)
-                Notify("QuickCut draait op de achtergrond. Dubbelklik met de rechtermuisknop (of druk " + cfg.Hotkey + ") om de ring te openen.", false);
+                Notify(string.Format(Str.TrayRunning, cfg.Hotkey), false);
             UpdateMouseHook();
             UpdateTrayText();
         }
@@ -126,13 +126,13 @@ namespace QuickCut
                 if (!RegisterHotkey(newCfg.Hotkey))
                 {
                     if (old != null) RegisterHotkey(old);
-                    error = "De sneltoets " + newCfg.Hotkey + " kan niet worden gebruikt (al in gebruik door Windows of een ander programma). Kies een andere combinatie.";
+                    error = string.Format(Str.HotkeyUnavailable, newCfg.Hotkey);
                     return false;
                 }
             }
             cfg = newCfg;
             try { cfg.Save(); }
-            catch (Exception ex) { error = "Opslaan mislukt: " + ex.Message; return false; }
+            catch (Exception ex) { error = string.Format(Str.SaveFailed, ex.Message); return false; }
             ring.SetConfig(cfg);
             UpdateMouseHook();
             if (autostart != Autostart.IsEnabled()) Autostart.Set(autostart);

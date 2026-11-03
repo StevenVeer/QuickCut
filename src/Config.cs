@@ -52,7 +52,7 @@ namespace QuickCut
         public string Hotkey = DefaultHotkey;
         public bool MouseTrigger = true;    // double right-click opens the ring
         public bool SkipFullscreen = true;  // ...but not in fullscreen games/videos
-        public RingItem Center = new RingItem(ActionType.Media, "Play/Pauze", "playpause");
+        public RingItem Center = new RingItem(ActionType.Media, Str.MediaShort[0], "playpause");
         public List<RingItem> Items = new List<RingItem>();
 
         public static string Folder
@@ -68,12 +68,12 @@ namespace QuickCut
             c.Items.Add(File.Exists(spotify)
                 ? new RingItem(ActionType.Program, "Spotify", spotify)
                 : new RingItem(ActionType.Url, "Spotify", "spotify:"));
-            c.Items.Add(new RingItem(ActionType.Media, "Volgende", "next"));
-            c.Items.Add(new RingItem(ActionType.Media, "Volume +", "volup"));
-            c.Items.Add(new RingItem(ActionType.Program, "Verkenner",
+            c.Items.Add(new RingItem(ActionType.Media, Str.MediaShort[1], "next"));
+            c.Items.Add(new RingItem(ActionType.Media, Str.MediaShort[4], "volup"));
+            c.Items.Add(new RingItem(ActionType.Program, Str.DefaultExplorer,
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe")));
-            c.Items.Add(new RingItem(ActionType.Media, "Volume -", "voldown"));
-            c.Items.Add(new RingItem(ActionType.Media, "Vorige", "prev"));
+            c.Items.Add(new RingItem(ActionType.Media, Str.MediaShort[5], "voldown"));
+            c.Items.Add(new RingItem(ActionType.Media, Str.MediaShort[2], "prev"));
             return c;
         }
 
@@ -113,8 +113,8 @@ namespace QuickCut
         {
             Directory.CreateDirectory(Folder);
             StringBuilder sb = new StringBuilder();
-            sb.AppendLine("# QuickCut instellingen. Formaat knoppen: Soort|Naam|Doel|Argumenten");
-            sb.AppendLine("# Soort: Program, Url, Media (playpause/next/prev/stop/volup/voldown/mute), Keys (bijv. Ctrl+Shift+Esc)");
+            sb.AppendLine("# QuickCut settings. Button format: Type|Label|Target|Args");
+            sb.AppendLine("# Type: Program, Url, Media (playpause/next/prev/stop/volup/voldown/mute), Keys (e.g. Ctrl+Shift+Esc)");
             sb.AppendLine("hotkey=" + Hotkey);
             sb.AppendLine("mouse=" + (MouseTrigger ? "1" : "0"));
             sb.AppendLine("skipfullscreen=" + (SkipFullscreen ? "1" : "0"));

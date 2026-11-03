@@ -12,4 +12,4 @@ build\iconmaker.exe --make-icon build\QuickCut.ico || exit /b 1
 
 rem Pass 2: the real exe, with icon and manifest
 "%CSC%" /nologo /target:winexe /optimize+ /debug- %REFS% /win32icon:build\QuickCut.ico /win32manifest:app.manifest /out:QuickCut.exe src\*.cs || exit /b 1
-echo Klaar: %~dp0QuickCut.exe
+echo Done: %~dp0QuickCut.exe

@@ -10,8 +10,8 @@ namespace QuickCut
     static class Actions
     {
         public static readonly string[] MediaIds = { "playpause", "next", "prev", "stop", "volup", "voldown", "mute" };
-        public static readonly string[] MediaNames = { "Play / Pauze", "Volgend nummer", "Vorig nummer", "Stop", "Volume omhoog", "Volume omlaag", "Geluid dempen" };
-        public static readonly string[] MediaShort = { "Play/Pauze", "Volgende", "Vorige", "Stop", "Volume +", "Volume -", "Dempen" };
+        public static string[] MediaNames { get { return Str.MediaNames; } }
+        static string[] MediaShort { get { return Str.MediaShort; } }
         static readonly byte[] MediaVk = { 0xB3, 0xB0, 0xB1, 0xB2, 0xAF, 0xAE, 0xAD };
 
         const uint KEYEVENTF_EXTENDEDKEY = 1, KEYEVENTF_KEYUP = 2;
@@ -40,7 +40,7 @@ namespace QuickCut
                 case ActionType.Program:
                 {
                     string path = ExpandPath(it.Target);
-                    if (path.Length == 0) throw new InvalidOperationException("Geen programma ingesteld.");
+                    if (path.Length == 0) throw new InvalidOperationException(Str.NoProgram);
                     ProcessStartInfo psi = new ProcessStartInfo(path);
                     psi.UseShellExecute = true;
                     if (!string.IsNullOrEmpty(it.Args)) psi.Arguments = Environment.ExpandEnvironmentVariables(it.Args);
@@ -51,7 +51,7 @@ namespace QuickCut
                 case ActionType.Url:
                 {
                     string url = (it.Target ?? "").Trim();
-                    if (url.Length == 0) throw new InvalidOperationException("Geen adres ingesteld.");
+                    if (url.Length == 0) throw new InvalidOperationException(Str.NoAddress);
                     if (url.IndexOf(':') < 0) url = "https://" + url;
                     ProcessStartInfo psi = new ProcessStartInfo(url);
                     psi.UseShellExecute = true;
@@ -61,7 +61,7 @@ namespace QuickCut
                 case ActionType.Media:
                 {
                     int i = Array.IndexOf(MediaIds, it.Target);
-                    if (i < 0) throw new InvalidOperationException("Onbekende media-actie: " + it.Target);
+                    if (i < 0) throw new InvalidOperationException(string.Format(Str.UnknownMedia, it.Target));
                     Native.keybd_event(MediaVk[i], 0, KEYEVENTF_EXTENDEDKEY, UIntPtr.Zero);
                     Native.keybd_event(MediaVk[i], 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, UIntPtr.Zero);
                     break;
@@ -82,7 +82,7 @@ namespace QuickCut
         {
             uint mods; Keys key;
             if (!KeyCombo.TryParse(combo, out mods, out key))
-                throw new InvalidOperationException("Ongeldige toetscombinatie: " + combo);
+                throw new InvalidOperationException(string.Format(Str.InvalidCombo, combo));
             List<byte> down = new List<byte>();
             if ((mods & KeyCombo.MOD_CONTROL) != 0) down.Add(0x11);
             if ((mods & KeyCombo.MOD_ALT) != 0) down.Add(0x12);
@@ -121,7 +121,6 @@ namespace QuickCut
                 else
                 {
                     if (key != Keys.None) return false;
-                    if (l == "spatie") p = "Space";
                     if (p.Length == 1 && char.IsDigit(p[0])) p = "D" + p;
                     else if (char.IsDigit(p[0])) return false;
                     Keys k;

@@ -240,7 +240,7 @@ namespace QuickCut
             try { Actions.Execute(it); }
             catch (Exception ex)
             {
-                if (App.Instance != null) App.Instance.Notify("Kon \"" + it.Label + "\" niet uitvoeren:\n" + ex.Message, true);
+                if (App.Instance != null) App.Instance.Notify(string.Format(Str.RunFailed, it.Label, ex.Message), true);
             }
         }
 

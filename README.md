@@ -1,22 +1,27 @@
 # QuickCut
 
-Klein Windows-programma (~60 KB) dat met één sneltoets een ring met knoppen opent rond je muis:
-programma's starten, websites openen, media bedienen (Spotify, YouTube, ...) of toetscombinaties sturen.
+A tiny Windows app (~60 KB) that opens a ring of buttons around your mouse with one shortcut:
+launch programs, open websites, control media (Spotify, YouTube, ...) or send key combinations.
 
-- Openen: **2x rechtermuisklik** of de sneltoets **Ctrl+Alt+Spatie** (aan te passen in Instellingen).
-  Niet in volledig scherm (games), tenzij je dat uitzet.
-- **Ingedrukt houden**, naar een knop bewegen en loslaten kiest die knop (bij 2x rechtsklik: houd de 2e klik vast)
-- Kort tikken laat de ring open: klik of 1-9 = knop, Spatie = midden, scrollen = volume, Esc = sluiten
-- Midden = standaardknop (Play/Pauze), daaromheen max. 12 eigen knoppen
-- Instellingen: dubbelklik op het icoon in het systeemvak, of start de exe nogmaals
-- Instellingen worden opgeslagen in `%APPDATA%\QuickCut\config.ini`
+- Open: **double right-click** or the hotkey **Ctrl+Alt+Space** (changeable in Settings).
+  Not in fullscreen apps (games), unless you turn that off.
+- **Hold**, move towards a button and release to pick it (with double right-click: hold the second click)
+- A quick tap keeps the ring open: click or 1-9 = button, Space = center, scroll = volume, Esc = close
+- Center = default button (Play/Pause), surrounded by up to 12 buttons of your own
+- Settings: double-click the tray icon, or start the exe again
+- Settings are stored in `%APPDATA%\QuickCut\config.ini`
 
-## Bouwen
+## Building
 
-Geen extra software nodig: gebruikt de C#-compiler die in Windows zit (.NET Framework 4.x).
+No extra software needed: it uses the C# compiler that ships with Windows (.NET Framework 4.x).
 
 ```
 build.cmd
 ```
 
-Dit maakt `QuickCut.exe` in de hoofdmap.
+This creates `QuickCut.exe` in the project folder.
+
+## Adding a language
+
+All user-facing text lives in `src/Strings.cs`. To add a language, add a method that reassigns
+those fields and call it at startup (for example based on `CultureInfo.CurrentUICulture`).
