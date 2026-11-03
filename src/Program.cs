@@ -73,7 +73,7 @@ namespace QuickCut
             tray = new NotifyIcon();
             tray.Icon = Art.CreateIcon(SystemInformation.SmallIconSize.Width);
             tray.ContextMenuStrip = menu;
-            tray.DoubleClick += delegate { OpenSettings(); };
+            tray.MouseClick += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) OpenSettings(); };
             tray.Visible = true;
 
             if (!RegisterHotkey(cfg.Hotkey))

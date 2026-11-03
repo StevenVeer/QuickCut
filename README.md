@@ -8,7 +8,7 @@ launch programs, open websites, control media (Spotify, YouTube, ...) or send ke
 - **Hold**, move towards a button and release to pick it (with double right-click: hold the second click)
 - A quick tap keeps the ring open: click or 1-9 = button, Space = center, scroll = volume, Esc = close
 - Center = default button (Play/Pause), surrounded by up to 12 buttons of your own
-- Settings: double-click the tray icon, or start the exe again
+- Settings: click the tray icon, or start the exe again
 - Settings are stored in `%APPDATA%\QuickCut\config.ini`
 
 ## Building
