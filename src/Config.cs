@@ -50,6 +50,8 @@ namespace QuickCut
         public const int MaxItems = 12;
 
         public string Hotkey = DefaultHotkey;
+        public bool MouseTrigger = true;    // double right-click opens the ring
+        public bool SkipFullscreen = true;  // ...but not in fullscreen games/videos
         public RingItem Center = new RingItem(ActionType.Media, "Play/Pauze", "playpause");
         public List<RingItem> Items = new List<RingItem>();
 
@@ -97,6 +99,8 @@ namespace QuickCut
                     string key = line.Substring(0, eq).Trim().ToLowerInvariant();
                     string val = line.Substring(eq + 1).Trim();
                     if (key == "hotkey") c.Hotkey = val;
+                    else if (key == "mouse") c.MouseTrigger = val != "0";
+                    else if (key == "skipfullscreen") c.SkipFullscreen = val != "0";
                     else if (key == "center") { RingItem it = RingItem.Parse(val); if (it != null) c.Center = it; }
                     else if (key == "item" && c.Items.Count < MaxItems) { RingItem it = RingItem.Parse(val); if (it != null) c.Items.Add(it); }
                 }
@@ -112,6 +116,8 @@ namespace QuickCut
             sb.AppendLine("# QuickCut instellingen. Formaat knoppen: Soort|Naam|Doel|Argumenten");
             sb.AppendLine("# Soort: Program, Url, Media (playpause/next/prev/stop/volup/voldown/mute), Keys (bijv. Ctrl+Shift+Esc)");
             sb.AppendLine("hotkey=" + Hotkey);
+            sb.AppendLine("mouse=" + (MouseTrigger ? "1" : "0"));
+            sb.AppendLine("skipfullscreen=" + (SkipFullscreen ? "1" : "0"));
             sb.AppendLine("center=" + Center.Serialize());
             foreach (RingItem it in Items) sb.AppendLine("item=" + it.Serialize());
             File.WriteAllText(FilePath, sb.ToString(), new UTF8Encoding(false));
@@ -121,6 +127,8 @@ namespace QuickCut
         {
             Config c = new Config();
             c.Hotkey = Hotkey;
+            c.MouseTrigger = MouseTrigger;
+            c.SkipFullscreen = SkipFullscreen;
             c.Center = Center.Clone();
             foreach (RingItem it in Items) c.Items.Add(it.Clone());
             return c;

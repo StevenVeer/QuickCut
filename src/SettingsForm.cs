@@ -21,7 +21,7 @@ namespace QuickCut
         readonly ComboBox cmbType, cmbMedia;
         readonly TextBox txtLabel, txtTarget, txtArgs;
         readonly Label lblTarget, lblArgs;
-        readonly CheckBox chkAutostart;
+        readonly CheckBox chkAutostart, chkMouse, chkFullscreen;
 
         public SettingsForm(App app, Config cfg)
         {
@@ -36,7 +36,7 @@ namespace QuickCut
             MinimizeBox = true;
             StartPosition = FormStartPosition.CenterScreen;
             AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(S(520), S(492));
+            ClientSize = new Size(S(520), S(520));
             Icon = Art.CreateIcon(32);
 
             // Hotkey
@@ -50,18 +50,25 @@ namespace QuickCut
             btnDefault.Click += delegate { hotkeyBox.Combo = Config.DefaultHotkey; work.Hotkey = Config.DefaultHotkey; };
             Add(this, new Label
             {
-                Text = "Klik in het vak en druk de toetsen in. In de ring: klik of 1-9 = knop, Spatie = midden, scrollen = volume, Esc = sluiten.",
+                Text = "Ingedrukt houden, naar een knop bewegen en loslaten kiest die knop. Kort tikken laat de ring open: klik of 1-9 = knop, Spatie = midden, scrollen = volume, Esc = sluiten.",
                 ForeColor = SystemColors.GrayText
-            }, 16, 66, 490, 34);
+            }, 16, 64, 490, 34);
+            chkMouse = Add(this, new CheckBox { Text = "Ook openen met 2x rechtermuisklik", AutoSize = true }, 16, 104, 240, 22);
+            chkMouse.Checked = work.MouseTrigger;
+            chkMouse.CheckedChanged += delegate { work.MouseTrigger = chkMouse.Checked; chkFullscreen.Enabled = chkMouse.Checked; };
+            chkFullscreen = Add(this, new CheckBox { Text = "Niet in volledig scherm (games)", AutoSize = true }, 270, 104, 240, 22);
+            chkFullscreen.Checked = work.SkipFullscreen;
+            chkFullscreen.Enabled = work.MouseTrigger;
+            chkFullscreen.CheckedChanged += delegate { work.SkipFullscreen = chkFullscreen.Checked; };
 
             // List of buttons
-            Add(this, new Label { Text = "Knoppen in de ring", AutoSize = true }, 16, 106, 220, 18);
-            list = Add(this, new ListBox { IntegralHeight = false }, 16, 128, 220, 252);
+            Add(this, new Label { Text = "Knoppen in de ring", AutoSize = true }, 16, 134, 220, 18);
+            list = Add(this, new ListBox { IntegralHeight = false }, 16, 156, 220, 252);
             list.SelectedIndexChanged += delegate { if (!loading) { LoadEditor(); UpdateButtons(); } };
-            btnAdd = Add(this, new Button { Text = "Toevoegen" }, 16, 386, 106, 28);
-            btnRemove = Add(this, new Button { Text = "Verwijderen" }, 130, 386, 106, 28);
-            btnUp = Add(this, new Button { Text = "Omhoog" }, 16, 418, 106, 28);
-            btnDown = Add(this, new Button { Text = "Omlaag" }, 130, 418, 106, 28);
+            btnAdd = Add(this, new Button { Text = "Toevoegen" }, 16, 414, 106, 28);
+            btnRemove = Add(this, new Button { Text = "Verwijderen" }, 130, 414, 106, 28);
+            btnUp = Add(this, new Button { Text = "Omhoog" }, 16, 446, 106, 28);
+            btnDown = Add(this, new Button { Text = "Omlaag" }, 130, 446, 106, 28);
             btnAdd.Click += delegate
             {
                 work.Items.Add(new RingItem(ActionType.Program, "", ""));
@@ -79,7 +86,7 @@ namespace QuickCut
             btnDown.Click += delegate { Swap(list.SelectedIndex - 1, list.SelectedIndex); };
 
             // Editor
-            editBox = Add(this, new GroupBox { Text = "Knop bewerken" }, 252, 120, 252, 294);
+            editBox = Add(this, new GroupBox { Text = "Knop bewerken" }, 252, 148, 252, 294);
             Add(editBox, new Label { Text = "Soort", AutoSize = true }, 12, 24, 200, 18);
             cmbType = Add(editBox, new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList }, 12, 44, 228, 24);
             cmbType.Items.AddRange(TypeNames);
@@ -124,15 +131,16 @@ namespace QuickCut
             };
 
             // Bottom
-            chkAutostart = Add(this, new CheckBox { Text = "Starten met Windows", AutoSize = true }, 16, 458, 200, 22);
+            chkAutostart = Add(this, new CheckBox { Text = "Starten met Windows", AutoSize = true }, 16, 486, 200, 22);
             chkAutostart.Checked = Autostart.IsEnabled();
-            Button btnSave = Add(this, new Button { Text = "Opslaan" }, 318, 452, 90, 30);
-            Button btnCancel = Add(this, new Button { Text = "Annuleren" }, 414, 452, 90, 30);
+            Button btnSave = Add(this, new Button { Text = "Opslaan" }, 318, 480, 90, 30);
+            Button btnCancel = Add(this, new Button { Text = "Annuleren" }, 414, 480, 90, 30);
             btnSave.Click += delegate { Save(); };
             btnCancel.Click += delegate { Close(); };
             CancelButton = btnCancel;
 
             RefreshList(1);
+            ActiveControl = list; // not the hotkey box: focusing it pauses the hotkey
         }
 
         int S(float v) { return (int)Math.Round(v * sc); }

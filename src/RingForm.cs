@@ -13,8 +13,14 @@ namespace QuickCut
     class RingForm : Form
     {
         const int HitNone = -1, HitCenter = -2;
+        // How the ring was opened: HoldNone = click mode, HoldMouse = right button held, > 0 = virtual key held.
+        public const int HoldNone = 0, HoldMouse = -1;
 
         Config cfg;
+        readonly System.Windows.Forms.Timer holdTimer;
+        int holdSource;
+        bool holding, moved;
+        int openHover;
         readonly float sc;
         readonly int size;
         readonly float cx, cy, rOuter, rInner, rCenter;
@@ -52,6 +58,15 @@ namespace QuickCut
                 Apply();
                 if (alpha == 255) fadeTimer.Stop();
             };
+            // Runs only while a trigger is held down: follows the cursor and watches for the release.
+            holdTimer = new System.Windows.Forms.Timer();
+            holdTimer.Interval = 15;
+            holdTimer.Tick += delegate
+            {
+                Point c = Cursor.Position;
+                SetHover(HitTest(new Point(c.X - Left, c.Y - Top)));
+                if (holdSource > 0 && (Native.GetAsyncKeyState(holdSource) & 0x8000) == 0) EndHold();
+            };
             IntPtr h = Handle; // create the window now so the first show is instant
         }
 
@@ -71,13 +86,11 @@ namespace QuickCut
             Art.ClearIconCache();
         }
 
-        public void Toggle()
-        {
-            if (Visible) HideRing(); else ShowRing();
-        }
+        public void ShowRing() { ShowRing(HoldNone); }
 
-        public void ShowRing()
+        public void ShowRing(int hold)
         {
+            if (Visible) HideRing();
             prevWindow = Native.GetForegroundWindow();
             Point m = Cursor.Position;
             Rectangle wa = Screen.FromPoint(m).WorkingArea;
@@ -86,19 +99,55 @@ namespace QuickCut
             Location = new Point(x, y);
             accent = Art.Accent();
             hover = HitTest(new Point(m.X - x, m.Y - y));
+            openHover = hover;
+            holdSource = hold;
+            holding = hold != HoldNone;
+            moved = false;
             alpha = 60;
             Render();
             Show();
-            Activate();
-            Native.SetForegroundWindow(Handle);
+            TakeFocus();
             fadeTimer.Start();
+            if (holding) holdTimer.Start();
+        }
+
+        // Windows only lets the active app hand out focus, so borrow its input queue for a moment.
+        void TakeFocus()
+        {
+            IntPtr fg = Native.GetForegroundWindow();
+            uint fgThread = fg == IntPtr.Zero ? 0 : Native.GetWindowThreadProcessId(fg, IntPtr.Zero);
+            uint me = Native.GetCurrentThreadId();
+            bool attached = fgThread != 0 && fgThread != me && Native.AttachThreadInput(me, fgThread, true);
+            Native.SetForegroundWindow(Handle);
+            Activate();
+            if (attached) Native.AttachThreadInput(me, fgThread, false);
+        }
+
+        // Trigger released: run the button under the cursor, if the user moved to one.
+        // Otherwise (a quick tap) the ring stays open and works with clicks.
+        public void EndHold()
+        {
+            if (!holding) return;
+            holding = false;
+            holdTimer.Stop();
+            if (!moved || hover == HitNone) return;
+            if (hover == HitCenter) Run(cfg.Center);
+            else if (hover < cfg.Items.Count) Run(cfg.Items[hover]);
         }
 
         public void HideRing()
         {
             fadeTimer.Stop();
+            holdTimer.Stop();
+            holding = false;
             if (Visible) Hide();
             hover = HitNone;
+        }
+
+        public bool ContainsScreenPoint(Point p)
+        {
+            float dx = p.X - Left - cx, dy = p.Y - Top - cy;
+            return dx * dx + dy * dy <= rOuter * rOuter;
         }
 
         // ---------- input ----------
@@ -109,7 +158,8 @@ namespace QuickCut
             double d = Math.Sqrt(dx * dx + dy * dy);
             if (d <= rCenter) return HitCenter;
             int n = cfg.Items.Count;
-            if (n == 0 || d < rInner - 4 * sc || d > rOuter) return HitNone;
+            // While holding, only the direction matters, so overshooting the ring still selects.
+            if (n == 0 || d < rInner - 4 * sc || (d > rOuter && !holding)) return HitNone;
             double sweep = 360.0 / n;
             double rel = Math.Atan2(dy, dx) * 180 / Math.PI + 90 + sweep / 2;
             rel = ((rel % 360) + 360) % 360;
@@ -124,7 +174,7 @@ namespace QuickCut
 
         protected override void OnMouseLeave(EventArgs e)
         {
-            SetHover(HitNone);
+            if (!holding) SetHover(HitNone);
             base.OnMouseLeave(e);
         }
 
@@ -132,6 +182,7 @@ namespace QuickCut
         {
             if (h == hover) return;
             hover = h;
+            if (h != openHover) moved = true;
             Cursor = h == HitNone ? Cursors.Default : Cursors.Hand;
             if (Visible) Render();
         }
@@ -139,6 +190,7 @@ namespace QuickCut
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
+            if (holding) { holding = false; holdTimer.Stop(); }
             if (e.Button != MouseButtons.Left) { HideRing(); return; }
             int h = HitTest(e.Location);
             if (h == HitCenter) Run(cfg.Center);
@@ -155,6 +207,8 @@ namespace QuickCut
         protected override void OnKeyDown(KeyEventArgs e)
         {
             base.OnKeyDown(e);
+            e.Handled = true;
+            if (holding) return; // key repeats of the held hotkey
             Keys k = e.KeyCode;
             int n = -1;
             if (k >= Keys.D1 && k <= Keys.D9) n = k - Keys.D1;
@@ -164,7 +218,6 @@ namespace QuickCut
             if (k == Keys.Escape) HideRing();
             else if (k == Keys.Space || k == Keys.Enter) Run(cfg.Center);
             else if (n >= 0 && n < cfg.Items.Count) Run(cfg.Items[n]);
-            e.Handled = true;
         }
 
         protected override void OnDeactivate(EventArgs e)
@@ -336,6 +389,7 @@ namespace QuickCut
             if (disposing)
             {
                 fadeTimer.Dispose();
+                holdTimer.Dispose();
                 labelFont.Dispose();
                 if (frame != null) frame.Dispose();
             }

@@ -53,6 +53,7 @@ namespace QuickCut
         readonly RingForm ring;
         readonly MessageWindow msgWin;
         SettingsForm settings;
+        MouseHook mouseHook;
         string activeHotkey;
 
         public App()
@@ -78,11 +79,29 @@ namespace QuickCut
             if (!RegisterHotkey(cfg.Hotkey))
                 Notify("De sneltoets " + cfg.Hotkey + " is al in gebruik door een ander programma. Kies een andere via Instellingen.", true);
             else if (firstRun)
-                Notify("QuickCut draait op de achtergrond. Druk op " + cfg.Hotkey + " om de ring te openen.", false);
+                Notify("QuickCut draait op de achtergrond. Dubbelklik met de rechtermuisknop (of druk " + cfg.Hotkey + ") om de ring te openen.", false);
+            UpdateMouseHook();
             UpdateTrayText();
         }
 
-        public void OnHotkey() { ring.Toggle(); }
+        public void OnHotkey()
+        {
+            if (ring.Visible) { ring.HideRing(); return; }
+            uint mods; Keys key;
+            KeyCombo.TryParse(activeHotkey, out mods, out key);
+            ring.ShowRing((int)key);
+        }
+
+        void UpdateMouseHook()
+        {
+            if (cfg.MouseTrigger && mouseHook == null)
+                mouseHook = new MouseHook(ring, delegate { return settings == null && !(cfg.SkipFullscreen && MouseHook.ForegroundIsFullscreen()); });
+            else if (!cfg.MouseTrigger && mouseHook != null)
+            {
+                mouseHook.Dispose();
+                mouseHook = null;
+            }
+        }
 
         public bool RegisterHotkey(string combo)
         {
@@ -115,6 +134,7 @@ namespace QuickCut
             try { cfg.Save(); }
             catch (Exception ex) { error = "Opslaan mislukt: " + ex.Message; return false; }
             ring.SetConfig(cfg);
+            UpdateMouseHook();
             if (autostart != Autostart.IsEnabled()) Autostart.Set(autostart);
             UpdateTrayText();
             return true;
@@ -147,6 +167,7 @@ namespace QuickCut
         protected override void ExitThreadCore()
         {
             Native.UnregisterHotKey(msgWin.Handle, HotkeyId);
+            if (mouseHook != null) mouseHook.Dispose();
             tray.Visible = false;
             tray.Dispose();
             if (settings != null) settings.Close();
@@ -200,6 +221,13 @@ namespace QuickCut
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern short GetKeyState(int vk);
+        [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);
+        [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);
+        [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint to, bool on);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder sb, int max);
+        [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+        [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
         [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
 
         [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; public POINT(int x, int y) { X = x; Y = y; } }
