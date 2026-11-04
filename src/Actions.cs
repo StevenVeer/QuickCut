@@ -9,10 +9,10 @@ namespace QuickCut
 {
     static class Actions
     {
-        public static readonly string[] MediaIds = { "playpause", "next", "prev", "stop", "volup", "voldown", "mute" };
+        public static readonly string[] MediaIds = { "playpause", "prev", "next", "stop", "volup", "voldown", "mute" };
         public static string[] MediaNames { get { return Str.MediaNames; } }
         static string[] MediaShort { get { return Str.MediaShort; } }
-        static readonly byte[] MediaVk = { 0xB3, 0xB0, 0xB1, 0xB2, 0xAF, 0xAE, 0xAD };
+        static readonly byte[] MediaVk = { 0xB3, 0xB1, 0xB0, 0xB2, 0xAF, 0xAE, 0xAD };
 
         const uint KEYEVENTF_EXTENDEDKEY = 1, KEYEVENTF_KEYUP = 2;
 

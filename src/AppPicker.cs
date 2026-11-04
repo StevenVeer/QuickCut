@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace QuickCut
@@ -14,8 +15,11 @@ namespace QuickCut
         readonly Palette pal;
         readonly float sc;
         readonly FieldBox search;
-        readonly ListBox list;
+        readonly SmoothList list;
         readonly List<AppEntry> all, suggested;
+        // Row icons, already shrunk to row size. Filled by a background thread so scrolling never waits on the shell.
+        readonly Dictionary<string, Bitmap> icons = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
+        volatile bool closed;
 
         public AppPicker(Palette pal)
         {
@@ -44,22 +48,18 @@ namespace QuickCut
             search.Box.TextChanged += delegate { Fill(); };
             search.Box.KeyDown += delegate(object s, KeyEventArgs e)
             {
-                if (e.KeyCode == Keys.Down) { list.Focus(); e.Handled = true; }
-                else if (e.KeyCode == Keys.Enter) { SelectFirst(); Accept(); e.Handled = e.SuppressKeyPress = true; }
+                if (e.KeyCode == Keys.Down) { list.Focus(); if (list.SelectedIndex < 0) SelectFirst(); e.Handled = e.SuppressKeyPress = true; }
+                else if (e.KeyCode == Keys.Enter) { if (list.SelectedIndex < 0) SelectFirst(); Accept(); e.Handled = e.SuppressKeyPress = true; }
             };
 
-            list = new ListBox();
+            list = new SmoothList();
             list.Bounds = new Rectangle(S(16), S(60), S(388), S(398));
-            list.BorderStyle = BorderStyle.None;
-            list.DrawMode = DrawMode.OwnerDrawFixed;
             list.ItemHeight = S(36);
-            list.IntegralHeight = false;
-            list.BackColor = pal.Card;
-            list.ForeColor = pal.Text;
-            list.DrawItem += DrawRow;
-            list.DoubleClick += delegate { Accept(); };
-            list.KeyDown += delegate(object s, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { Accept(); e.Handled = true; } };
+            list.Selectable = delegate(object o) { return o is AppEntry; };
+            list.PaintRow = DrawRow;
+            list.Activated += delegate { Accept(); };
             Controls.Add(list);
+            list.SetPalette(pal);
 
             FlatButton ok = new FlatButton(Str.Select, FlatButton.Kind.Normal);
             ok.Bounds = new Rectangle(S(204), S(472), S(96), S(34));
@@ -84,7 +84,69 @@ namespace QuickCut
             search.SetCue(Str.SearchApps);
         }
 
-        protected override void OnShown(EventArgs e) { base.OnShown(e); search.Box.Focus(); }
+        protected override void OnShown(EventArgs e) { base.OnShown(e); search.Box.Focus(); StartIconLoader(); }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            closed = true;
+            foreach (Bitmap b in icons.Values) if (b != null) b.Dispose();
+            icons.Clear();
+            base.OnFormClosed(e);
+        }
+
+        // Loads every icon on an STA thread (the shell needs one), suggested apps first, and hands
+        // them to the UI thread in small batches.
+        void StartIconLoader()
+        {
+            List<string> paths = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (AppEntry a in suggested) if (seen.Add(a.Path)) paths.Add(a.Path);
+            foreach (AppEntry a in all) if (seen.Add(a.Path)) paths.Add(a.Path);
+            int isz = S(24);
+            Thread t = new Thread(delegate()
+            {
+                List<KeyValuePair<string, Bitmap>> batch = new List<KeyValuePair<string, Bitmap>>();
+                for (int i = 0; i < paths.Count && !closed; i++)
+                {
+                    batch.Add(new KeyValuePair<string, Bitmap>(paths[i], Shrink(Art.LoadPathIcon(paths[i], false), isz)));
+                    if (batch.Count >= 12 || i == paths.Count - 1) { Deliver(batch); batch = new List<KeyValuePair<string, Bitmap>>(); }
+                }
+            });
+            t.IsBackground = true;
+            t.SetApartmentState(ApartmentState.STA);
+            t.Start();
+        }
+
+        void Deliver(List<KeyValuePair<string, Bitmap>> batch)
+        {
+            try
+            {
+                BeginInvoke((Action)delegate
+                {
+                    foreach (KeyValuePair<string, Bitmap> kv in batch)
+                    {
+                        if (closed || icons.ContainsKey(kv.Key)) { if (kv.Value != null) kv.Value.Dispose(); }
+                        else icons[kv.Key] = kv.Value;
+                    }
+                    if (!closed) list.Invalidate();
+                });
+            }
+            catch (InvalidOperationException) { foreach (KeyValuePair<string, Bitmap> kv in batch) if (kv.Value != null) kv.Value.Dispose(); }
+        }
+
+        static Bitmap Shrink(Bitmap src, int size)
+        {
+            if (src == null) return null;
+            Bitmap b = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            using (Graphics g = Graphics.FromImage(b))
+            {
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.DrawImage(src, 0, 0, size, size);
+            }
+            src.Dispose();
+            return b;
+        }
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
@@ -95,7 +157,6 @@ namespace QuickCut
         void Fill()
         {
             string q = search.Box.Text.Trim();
-            list.BeginUpdate();
             list.Items.Clear();
             if (q.Length == 0)
             {
@@ -110,7 +171,7 @@ namespace QuickCut
             else
                 foreach (AppEntry a in all)
                     if (a.Name.IndexOf(q, StringComparison.CurrentCultureIgnoreCase) >= 0) list.Items.Add(a);
-            list.EndUpdate();
+            list.Reset();
         }
 
         void SelectFirst()
@@ -127,30 +188,29 @@ namespace QuickCut
             DialogResult = DialogResult.OK;
         }
 
-        void DrawRow(object sender, DrawItemEventArgs e)
+        void DrawRow(Graphics g, int index, Rectangle r, bool sel, bool hot)
         {
-            if (e.Index < 0) return;
-            Graphics g = e.Graphics;
-            object item = list.Items[e.Index];
+            object item = list.Items[index];
             AppEntry a = item as AppEntry;
-            bool sel = a != null && (e.State & DrawItemState.Selected) != 0;
-            using (SolidBrush b = new SolidBrush(sel ? Theme.Mix(pal.Card, pal.Accent, pal.Dark ? 0.3f : 0.15f) : pal.Card))
-                g.FillRectangle(b, e.Bounds);
             if (a == null)
             {
-                Rectangle hr = new Rectangle(e.Bounds.X + S(6), e.Bounds.Y + S(10), e.Bounds.Width, e.Bounds.Height - S(10));
+                Rectangle hr = new Rectangle(r.X + S(6), r.Y + S(10), r.Width, r.Height - S(10));
                 TextRenderer.DrawText(g, (string)item, Font, hr, pal.Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
                 return;
             }
-            float isz = S(24);
-            Bitmap icon = Art.PathIcon(a.Path, false);
-            RectangleF ir = new RectangleF(e.Bounds.X + S(8), e.Bounds.Y + (e.Bounds.Height - isz) / 2, isz, isz);
-            if (icon != null)
+            if (sel || hot)
             {
-                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                g.DrawImage(icon, ir);
+                Color c = sel ? Theme.Mix(pal.Card, pal.Accent, pal.Dark ? 0.3f : 0.15f) : Theme.Mix(pal.Card, pal.Text, 0.06f);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (SolidBrush b = new SolidBrush(c))
+                using (GraphicsPath p = ThemedControl.Round(new RectangleF(r.X + 2, r.Y + 1, r.Width - 4, r.Height - 2), S(6)))
+                    g.FillPath(b, p);
             }
-            Rectangle tr = new Rectangle((int)ir.Right + S(10), e.Bounds.Y, e.Bounds.Width - S(48), e.Bounds.Height);
+            int isz = S(24);
+            Bitmap icon; // not loaded yet: the row shows without it and the loader repaints later
+            Rectangle ir = new Rectangle(r.X + S(8), r.Y + (r.Height - isz) / 2, isz, isz);
+            if (icons.TryGetValue(a.Path, out icon) && icon != null) g.DrawImageUnscaled(icon, ir.X, ir.Y);
+            Rectangle tr = new Rectangle(ir.Right + S(10), r.Y, r.Right - ir.Right - S(14), r.Height);
             TextRenderer.DrawText(g, a.Name, Font, tr, pal.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
     }

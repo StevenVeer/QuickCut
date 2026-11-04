@@ -187,15 +187,21 @@ namespace QuickCut
             string key = "path:" + path + ":" + large;
             Bitmap bmp;
             if (iconCache.TryGetValue(key, out bmp)) return bmp;
-            bmp = null;
+            bmp = LoadPathIcon(path, large);
+            iconCache[key] = bmp;
+            return bmp;
+        }
+
+        // Uncached load; safe on a background STA thread (the app picker preloads its icons with it).
+        public static Bitmap LoadPathIcon(string path, bool large)
+        {
             try
             {
                 string p = Actions.ExpandPath(path);
-                if (p.Length > 0 && (File.Exists(p) || Directory.Exists(p) || AppCatalog.IsAppsFolder(p))) bmp = ShellIcon(p, large);
+                if (p.Length > 0 && (File.Exists(p) || Directory.Exists(p) || AppCatalog.IsAppsFolder(p))) return ShellIcon(p, large);
             }
             catch { }
-            iconCache[key] = bmp;
-            return bmp;
+            return null;
         }
 
         public static void DrawApps(Graphics g, RectangleF r, Color col)

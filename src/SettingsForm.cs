@@ -520,7 +520,6 @@ namespace QuickCut
             tabs.SelectedIndex = 0;
             LoadEditor();
             Changed();
-            PickApp(); // most new buttons open an app; cancel to choose another type
         }
 
         void RemoveItem()

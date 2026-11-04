@@ -22,8 +22,8 @@ namespace QuickCut
         public static string NoAddress = "No address set.";
         public static string UnknownMedia = "Unknown media action: {0}";
         public static string InvalidCombo = "Invalid key combination: {0}";
-        public static string[] MediaNames = { "Play / Pause", "Next track", "Previous track", "Stop", "Volume up", "Volume down", "Mute" };
-        public static string[] MediaShort = { "Play/Pause", "Next", "Previous", "Stop", "Volume +", "Volume -", "Mute" };
+        public static string[] MediaNames = { "Play / Pause", "Previous track", "Next track", "Stop", "Volume up", "Volume down", "Mute" };
+        public static string[] MediaShort = { "Play/Pause", "Previous", "Next", "Stop", "Volume +", "Volume -", "Mute" };
 
         // Volume panel under the ring
         public static string VolumeLevel = "Volume {0}%";
