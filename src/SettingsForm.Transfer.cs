@@ -1,6 +1,5 @@
 using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -10,89 +9,84 @@ namespace QuickCut
     // Import / export of the buttons and look (see ConfigTransfer), from the link in General > Other.
     partial class SettingsForm
     {
-        ContextMenuStrip transferMenu;
+        ToolStripDropDown transferMenu;
 
+        // A small popup under the link with two full-width rows, drawn like the rest of the window. Not a
+        // ContextMenuStrip: its items keep hidden margins for icons, so they never reach the edges.
         void ShowTransferMenu(Control anchor)
         {
-            if (transferMenu == null)
+            if (transferMenu == null) Disposed += delegate { if (transferMenu != null) transferMenu.Dispose(); };
+            else transferMenu.Dispose(); // built fresh each time, so it follows the current theme
+
+            string[] texts = { Str.ExportMenu, Str.ImportMenu };
+            Action[] actions = { ExportSettings, ImportSettings };
+            int rowH = S(34), pad = S(4), w = S(160);
+            foreach (string t in texts) w = Math.Max(w, TextRenderer.MeasureText(t, Font).Width + S(48));
+
+            ToolStripDropDown dd = new ToolStripDropDown();
+            dd.Padding = Padding.Empty;
+            dd.Renderer = new PlainRenderer();
+            BorderPanel box = new BorderPanel(pal);
+            box.Size = new Size(w, 2 * pad + rowH * texts.Length);
+            for (int i = 0; i < texts.Length; i++)
             {
-                transferMenu = new ContextMenuStrip();
-                transferMenu.ShowImageMargin = false;
-                transferMenu.Padding = new Padding(S(4));
-                transferMenu.Font = Font;
-                foreach (ToolStripMenuItem it in new[] {
-                    new ToolStripMenuItem(Str.ExportMenu, null, delegate { ExportSettings(); }),
-                    new ToolStripMenuItem(Str.ImportMenu, null, delegate { ImportSettings(); }) })
-                {
-                    it.Padding = new Padding(S(12), S(7), S(12), S(7));
-                    transferMenu.Items.Add(it);
-                }
-                transferMenu.HandleCreated += delegate { MenuRenderer.RoundCorners(transferMenu); };
-                Disposed += delegate { transferMenu.Dispose(); };
+                MenuRow row = new MenuRow(texts[i]);
+                row.Font = Font;
+                row.Bounds = new Rectangle(1, pad + i * rowH, w - 2, rowH); // inside the 1 px border
+                row.SetPalette(pal);
+                Action act = actions[i];
+                row.Click += delegate { dd.Close(); act(); };
+                box.Controls.Add(row);
             }
-            // Follows the current theme, which may have changed since the last time.
-            transferMenu.Renderer = new MenuRenderer(pal, sc);
-            transferMenu.BackColor = pal.Card;
-            transferMenu.ForeColor = pal.Text;
+            ToolStripControlHost host = new ToolStripControlHost(box);
+            host.Padding = host.Margin = Padding.Empty;
+            host.AutoSize = false;
+            host.Size = box.Size;
+            dd.Items.Add(host);
+            dd.HandleCreated += delegate { RoundCorners(dd.Handle); };
+            transferMenu = dd;
             // Under the link, lined up with its right edge (the link's text is right-aligned).
-            transferMenu.Show(anchor, new Point(anchor.Width, anchor.Height + S(2)), ToolStripDropDownDirection.BelowLeft);
+            dd.Show(anchor, new Point(anchor.Width, anchor.Height + S(2)), ToolStripDropDownDirection.BelowLeft);
         }
 
-        // Draws a menu like the rest of the settings window: the card color, a thin border and a rounded
-        // hover highlight, in light and dark mode. On Windows 11 the menu window itself gets rounded corners.
-        class MenuRenderer : ToolStripRenderer
+        [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        static void RoundCorners(IntPtr hwnd)
+        {
+            try
+            {
+                int round = 3; // DWMWCP_ROUNDSMALL: the size Windows uses for its own menus
+                DwmSetWindowAttribute(hwnd, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/, ref round, 4);
+            }
+            catch { } // before Windows 11: square corners
+        }
+
+        // Draws nothing: the hosted panel paints the whole popup.
+        class PlainRenderer : ToolStripRenderer { }
+
+        // The popup's background: the card color with a thin border.
+        class BorderPanel : Panel
         {
             readonly Palette pal;
-            readonly float sc;
+            public BorderPanel(Palette pal) { this.pal = pal; BackColor = pal.Card; DoubleBuffered = true; }
 
-            public MenuRenderer(Palette pal, float sc) { this.pal = pal; this.sc = sc; }
-
-            [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
-
-            public static void RoundCorners(Control menu)
+            protected override void OnPaint(PaintEventArgs e)
             {
-                try
-                {
-                    int round = 3; // DWMWCP_ROUNDSMALL: the size Windows uses for its own menus
-                    DwmSetWindowAttribute(menu.Handle, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/, ref round, 4);
-                }
-                catch { } // before Windows 11: square corners
+                base.OnPaint(e);
+                using (Pen p = new Pen(pal.Border)) e.Graphics.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
             }
+        }
 
-            protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+        // One full-width row: centered text, the hover color under the mouse.
+        class MenuRow : ThemedControl
+        {
+            public MenuRow(string text) { Text = text; Cursor = Cursors.Hand; }
+
+            protected override void OnPaint(PaintEventArgs e)
             {
-                e.Graphics.Clear(pal.Card);
+                e.Graphics.Clear(Hot ? Pal.Hover : Pal.Card);
+                DrawCentered(e.Graphics, Text, Font, ClientRectangle, Pal.Text);
             }
-
-            protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
-            {
-                using (Pen p = new Pen(pal.Border))
-                    e.Graphics.DrawRectangle(p, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
-            }
-
-            // The hover highlight and the text, centered in the menu. A menu item can be wider than the menu
-            // shows (it keeps room for icons and arrows) and ignores TextAlign, so both are placed against
-            // the menu's visible width, in the item's own coordinates, and the base text step is skipped.
-            protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
-            {
-                Graphics g = e.Graphics;
-                ToolStrip menu = e.Item.Owner;
-                int left = menu.Padding.Left - e.Item.Bounds.X;
-                Rectangle area = new Rectangle(left, 0, menu.Width - menu.Padding.Horizontal, e.Item.Height);
-                if (e.Item.Selected && e.Item.Enabled)
-                {
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
-                    RectangleF r = new RectangleF(area.X, 1, area.Width, area.Height - 2);
-                    using (GraphicsPath p = ThemedControl.Round(r, 5 * sc))
-                    using (SolidBrush b = new SolidBrush(pal.Hover))
-                        g.FillPath(b, p);
-                }
-                TextRenderer.DrawText(g, e.Item.Text, e.Item.Font, area,
-                    e.Item.Enabled ? pal.Text : pal.Muted,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
-            }
-
-            protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) { } // drawn above
         }
 
         void ExportSettings()
