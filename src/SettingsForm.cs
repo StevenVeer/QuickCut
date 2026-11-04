@@ -43,7 +43,7 @@ namespace QuickCut
         SwatchRow allColor, accentColor;
 
         // General tab
-        ToggleSwitch tgMouse, tgFullscreen, tgAutostart;
+        ToggleSwitch tgMouse, tgFullscreen, tgAutostart, tgNotice;
         HotkeyBox hotkeyBox;
         Label lblHotkeyError;
 
@@ -309,7 +309,9 @@ namespace QuickCut
             AddLabel(p, Str.OtherSection, 0, 270, 352, 24, "heading");
             tgAutostart = Row(p, Str.StartWithWindows, 304, Autostart.IsEnabled());
             tgAutostart.CheckedChanged += delegate { if (!loading) Autostart.Set(tgAutostart.Checked); };
-            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 344, 220, 24);
+            tgNotice = Row(p, Str.LaunchNotice, 340, work.LaunchNotice);
+            tgNotice.CheckedChanged += delegate { if (!loading) { work.LaunchNotice = tgNotice.Checked; Changed(); } };
+            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 380, 220, 24);
             restore.Click += delegate { RestoreDefaults(); };
             loading = false;
         }

@@ -10,6 +10,8 @@ namespace QuickCut
         public static string MenuSettings = "Settings...";
         public static string MenuExit = "Exit";
         public static string TrayRunning = "QuickCut is running in the background. Double right-click (or press {0}) to open the ring.";
+        public static string ToastStarted = "QuickCut started";
+        public static string ToastReady = "Ready in the system tray";
         public static string HotkeyInUse = "The hotkey {0} is already used by another program. Pick a different one in Settings.";
         public static string HotkeyUnavailable = "{0} is already taken by Windows or another program. Try a different combination.";
         public static string SaveFailed = "Saving failed: {0}";
@@ -78,7 +80,9 @@ namespace QuickCut
         public static string Default = "Default";
         public static string Hint = "Hold, move to a button and release to pick it. A quick tap keeps the ring open: click or 1-9 = button, Space = center, scroll = volume, Esc = close.";
         public static string OtherSection = "Other";
-        public static string StartWithWindows = "Start with Windows";        public static string RestoreButtons = "Restore default buttons";
+        public static string StartWithWindows = "Start with Windows";
+        public static string LaunchNotice = "Show a notice when QuickCut starts";
+        public static string RestoreButtons = "Restore default buttons";
         public static string RestoreConfirm = "Replace all buttons with the suggested defaults?";
 
         // App picker and dialogs

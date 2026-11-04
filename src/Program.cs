@@ -92,7 +92,15 @@ namespace QuickCut
             if (!RegisterHotkey(cfg.Hotkey))
                 Notify(string.Format(Str.HotkeyInUse, cfg.Hotkey), true);
             else if (firstRun)
-                Notify(string.Format(Str.TrayRunning, cfg.Hotkey), false);            UpdateMouseHook();
+                Notify(string.Format(Str.TrayRunning, cfg.Hotkey), false);
+            else if (cfg.LaunchNotice)
+            {
+                // Show it once the app is up and idle, so it never delays startup.
+                EventHandler once = null;
+                once = delegate { Application.Idle -= once; LaunchToast.Show(cfg); };
+                Application.Idle += once;
+            }
+            UpdateMouseHook();
             UpdateTrayText();
         }
 

@@ -56,6 +56,7 @@ namespace QuickCut
         public string Hotkey = DefaultHotkey;
         public bool MouseTrigger = true;    // double right-click opens the ring
         public bool SkipFullscreen = true;  // ...but not in fullscreen games/videos
+        public bool LaunchNotice = true;    // small "QuickCut started" notice at launch
         public string ThemeMode = "system"; // system, light, dark
         public string HoverStyle = "fill";  // fill, invert, outline, grow
         public string Accent = "";          // hover color: "" = orange, "windows" = Windows accent, or #RRGGBB
@@ -119,6 +120,7 @@ namespace QuickCut
                     if (key == "hotkey") c.Hotkey = val;
                     else if (key == "mouse") c.MouseTrigger = val != "0";
                     else if (key == "skipfullscreen") c.SkipFullscreen = val != "0";
+                    else if (key == "launchnotice") c.LaunchNotice = val != "0";
                     else if (key == "theme") c.ThemeMode = val;
                     else if (key == "hover") c.HoverStyle = val;
                     else if (key == "accent") c.Accent = val;
@@ -141,6 +143,7 @@ namespace QuickCut
             sb.AppendLine("hotkey=" + Hotkey);
             sb.AppendLine("mouse=" + (MouseTrigger ? "1" : "0"));
             sb.AppendLine("skipfullscreen=" + (SkipFullscreen ? "1" : "0"));
+            sb.AppendLine("launchnotice=" + (LaunchNotice ? "1" : "0"));
             sb.AppendLine("theme=" + ThemeMode);
             sb.AppendLine("hover=" + HoverStyle);
             sb.AppendLine("accent=" + Accent);
@@ -157,6 +160,7 @@ namespace QuickCut
             c.Hotkey = Hotkey;
             c.MouseTrigger = MouseTrigger;
             c.SkipFullscreen = SkipFullscreen;
+            c.LaunchNotice = LaunchNotice;
             c.ThemeMode = ThemeMode;
             c.HoverStyle = HoverStyle;
             c.Accent = Accent;
