@@ -113,34 +113,38 @@ namespace QuickCut
                 return d;
             }
 
-            Config c = new Config();
-            try
-            {
-                foreach (string raw in File.ReadAllLines(FilePath, Encoding.UTF8))
-                {
-                    string line = raw.Trim();
-                    if (line.Length == 0 || line[0] == '#' || line[0] == ';') continue;
-                    int eq = line.IndexOf('=');
-                    if (eq < 0) continue;
-                    string key = line.Substring(0, eq).Trim().ToLowerInvariant();
-                    string val = line.Substring(eq + 1).Trim();
-                    if (key == "hotkey") c.Hotkey = val;
-                    else if (key == "mouse") c.MouseTrigger = val != "0";
-                    else if (key == "skipfullscreen") c.SkipFullscreen = val != "0";
-                    else if (key == "launchnotice") c.LaunchNotice = val != "0";
-                    else if (key == "theme") c.ThemeMode = val;
-                    else if (key == "hover") c.HoverStyle = val;
-                    else if (key == "accent") c.Accent = val;
-                    else if (key == "buttoncolor") c.ButtonColor = val;
-                    else if (key == "size") c.RingSize = val;
-                    else if (key == "volumebar") c.VolumeBar = val != "0";
-                    else if (key == "mediabar") c.MediaBar = val != "0";
-                    else if (key == "volumestep") c.VolumeStep = val == "10" ? 10 : 5;
-                    else if (key == "center") { RingItem it = RingItem.Parse(val); if (it != null) c.Center = it; }
-                    else if (key == "item" && c.Items.Count < MaxItems) { RingItem it = RingItem.Parse(val); if (it != null) c.Items.Add(it); }
-                }
-            }
+            try { return FromLines(File.ReadAllLines(FilePath, Encoding.UTF8)); }
             catch { return CreateDefault(); }
+        }
+
+        // Reads settings in the config.ini format. Unknown keys are skipped, missing ones keep their
+        // defaults, and at most MaxItems buttons are read. Also used to import a .quickcut file.
+        public static Config FromLines(IEnumerable<string> lines)
+        {
+            Config c = new Config();
+            foreach (string raw in lines)
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line[0] == '#' || line[0] == ';') continue;
+                int eq = line.IndexOf('=');
+                if (eq < 0) continue;
+                string key = line.Substring(0, eq).Trim().ToLowerInvariant();
+                string val = line.Substring(eq + 1).Trim();
+                if (key == "hotkey") c.Hotkey = val;
+                else if (key == "mouse") c.MouseTrigger = val != "0";
+                else if (key == "skipfullscreen") c.SkipFullscreen = val != "0";
+                else if (key == "launchnotice") c.LaunchNotice = val != "0";
+                else if (key == "theme") c.ThemeMode = val;
+                else if (key == "hover") c.HoverStyle = val;
+                else if (key == "accent") c.Accent = val;
+                else if (key == "buttoncolor") c.ButtonColor = val;
+                else if (key == "size") c.RingSize = val;
+                else if (key == "volumebar") c.VolumeBar = val != "0";
+                else if (key == "mediabar") c.MediaBar = val != "0";
+                else if (key == "volumestep") c.VolumeStep = val == "10" ? 10 : 5;
+                else if (key == "center") { RingItem it = RingItem.Parse(val); if (it != null) c.Center = it; }
+                else if (key == "item" && c.Items.Count < MaxItems) { RingItem it = RingItem.Parse(val); if (it != null) c.Items.Add(it); }
+            }
             return c;
         }
 

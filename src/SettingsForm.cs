@@ -7,7 +7,8 @@ using Microsoft.Win32;
 namespace QuickCut
 {
     // Settings: a live ring preview on the left, three tabs on the right. Changes apply right away.
-    class SettingsForm : Form
+    // Import / export lives in SettingsForm.Transfer.cs.
+    partial class SettingsForm : Form
     {
         static readonly string[] ThemeIds = { "system", "light", "dark" };
         static readonly string[] HoverIds = { "fill", "invert", "outline", "grow" };
@@ -364,8 +365,11 @@ namespace QuickCut
             };
             tgNotice = Row(p, Str.LaunchNotice, 438, work.LaunchNotice);
             tgNotice.CheckedChanged += delegate { if (!loading) { work.LaunchNotice = tgNotice.Checked; Changed(); } };
-            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 476, 220, 24);
+            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 476, 200, 24);
             restore.Click += delegate { RestoreDefaults(); };
+            FlatButton transfer = Add(p, new FlatButton(Str.ImportExport, FlatButton.Kind.Link), 212, 476, 140, 24);
+            transfer.AlignRight = true;
+            transfer.Click += delegate { ShowTransferMenu(transfer); };
             FlatButton bug = Add(p, new FlatButton(Str.ReportBug, FlatButton.Kind.Link), 0, 506, 160, 24);
             bug.Click += delegate { OpenIssue("bug.yml"); };
             FlatButton idea = Add(p, new FlatButton(Str.SuggestFeature, FlatButton.Kind.Link), 172, 506, 180, 24);

@@ -116,6 +116,21 @@ namespace QuickCut
         public static string SuggestFeature = "Suggest a feature";
         public static string RestoreConfirm = "Replace all buttons with the suggested defaults?";
 
+        // Import / export (General tab)
+        public static string ImportExport = "Import / export…";
+        public static string ExportMenu = "Export buttons and look…";
+        public static string ImportMenu = "Import buttons and look…";
+        public static string TransferFilter = "QuickCut ring (*.quickcut)|*.quickcut|All files|*.*";
+        public static string ExportFileName = "QuickCut buttons";
+        public static string Exported = "✓ Exported to {0}";
+        public static string ImportConfirm = "Replace your buttons and look with the ones in \"{0}\"?\n\n" +
+            "It has {1} buttons and a center button. Your shortcut and other settings stay as they are.";
+        public static string ImportMissing = "\n\nNot installed on this PC: {0}. These buttons stay; pick the app again to fix them.";
+        public static string ImportNotQuickCut = "This isn't a QuickCut file: it has no buttons in it.";
+        public static string ImportTooBig = "This file is too big to be a QuickCut file.";
+        public static string ImportFailed = "Couldn't import the file: {0}";
+        public static string ExportFailed = "Couldn't export: {0}";
+
         // App picker and dialogs
         public static string PickAppTitle = "Pick an app";
         public static string SearchApps = "Search apps";
