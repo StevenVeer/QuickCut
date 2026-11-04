@@ -42,7 +42,7 @@ namespace QuickCut
         Label lblSize, lblHoverStyle, lblPreviewHint;
 
         // General tab
-        ToggleSwitch tgMouse, tgFullscreen, tgAutostart, tgNotice, tgVolume;
+        ToggleSwitch tgMouse, tgFullscreen, tgAutostart, tgNotice, tgVolume, tgMedia;
         Segmented stepSeg;
         HotkeyBox hotkeyBox;
         Label lblHotkeyError;
@@ -64,7 +64,7 @@ namespace QuickCut
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(S(780), S(600));
+            ClientSize = new Size(S(780), S(636));
             Rectangle wa = Screen.FromPoint(m).WorkingArea;
             StartPosition = FormStartPosition.Manual;
             Location = new Point(wa.X + Math.Max(0, (wa.Width - Width) / 2), wa.Y + Math.Max(0, (wa.Height - Height) / 2));
@@ -76,17 +76,17 @@ namespace QuickCut
             tabs = Add(this, new Segmented(Str.Tabs), 430, 16, 330, 36);
             tabs.SelectedIndexChanged += delegate { ShowTab(); };
 
-            Card left = Add(this, new Card(), 20, 64, 340, 516);
-            preview = Add(left, new RingPreview(), 8, 6, 324, 376);
+            Card left = Add(this, new Card(), 20, 64, 340, 552);
+            preview = Add(left, new RingPreview(), 8, 6, 324, 412);
             preview.Cfg = work;
             preview.Selected = work.Items.Count > 0 ? 0 : RingRenderer.HitCenter;
             preview.SelectedChanged += delegate { tabs.SelectedIndex = 0; LoadEditor(); };
             preview.Reordered += delegate { LoadEditor(); Changed(); };
             // Circular arrows: "left/right" is ambiguous on a circle (it flips at the bottom).
             Font arrows = F("Segoe UI Symbol", 10.5f); // has the ↺ ↻ glyphs
-            btnLeft = Add(left, new FlatButton(Str.MoveLeft, FlatButton.Kind.Normal), 20, 388, 88, 34);
-            btnAdd = Add(left, new FlatButton(Str.AddButton, FlatButton.Kind.Normal), 116, 388, 108, 34);
-            btnRight = Add(left, new FlatButton(Str.MoveRight, FlatButton.Kind.Normal), 232, 388, 88, 34);
+            btnLeft = Add(left, new FlatButton(Str.MoveLeft, FlatButton.Kind.Normal), 20, 424, 88, 34);
+            btnAdd = Add(left, new FlatButton(Str.AddButton, FlatButton.Kind.Normal), 116, 424, 108, 34);
+            btnRight = Add(left, new FlatButton(Str.MoveRight, FlatButton.Kind.Normal), 232, 424, 88, 34);
             btnLeft.Font = btnRight.Font = arrows;
             ToolTip tips = new ToolTip();
             tips.SetToolTip(btnLeft, Str.MoveCounterClockwise);
@@ -94,18 +94,18 @@ namespace QuickCut
             btnLeft.Click += delegate { MoveItem(-1); };
             btnRight.Click += delegate { MoveItem(1); };
             btnAdd.Click += delegate { AddItem(); };
-            btnTest = Add(left, new FlatButton(Str.Test, FlatButton.Kind.Normal), 20, 430, 300, 34);
+            btnTest = Add(left, new FlatButton(Str.Test, FlatButton.Kind.Normal), 20, 466, 300, 34);
             btnTest.Click += delegate
             {
                 try { Actions.Execute(Current); }
                 catch (Exception ex) { MessageBox.Show(this, ex.Message, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             };
-            lblPreviewHint = AddLabel(left, Str.PreviewHint, 20, 472, 300, 38, "muted"); // text follows the tab, see ShowTab
+            lblPreviewHint = AddLabel(left, Str.PreviewHint, 20, 508, 300, 38, "muted"); // text follows the tab, see ShowTab
 
-            Card right = Add(this, new Card(), 376, 64, 384, 516);
+            Card right = Add(this, new Card(), 376, 64, 384, 552);
             pnlButtons = Add(right, new Panel(), 16, 14, 352, 488);
             pnlAppearance = Add(right, new Panel(), 16, 14, 352, 488);
-            pnlGeneral = Add(right, new Panel(), 16, 14, 352, 496); // a bit taller: room for the shortcut error line
+            pnlGeneral = Add(right, new Panel(), 16, 14, 352, 532); // a bit taller: room for the shortcut error line
 
             commitTimer = new Timer();
             commitTimer.Interval = 300;
@@ -334,12 +334,15 @@ namespace QuickCut
             stepSeg.SelectedIndex = work.VolumeStep == 10 ? 1 : 0;
             stepSeg.SelectedIndexChanged += delegate { if (!loading) { work.VolumeStep = stepSeg.SelectedIndex == 1 ? 10 : 5; Changed(); } };
 
-            AddLabel(p, Str.OtherSection, 0, 332, 352, 24, "heading");
-            tgAutostart = Row(p, Str.StartWithWindows, 366, Autostart.IsEnabled());
+            tgMedia = Row(p, Str.ShowMedia, 330, work.MediaBar);
+            tgMedia.CheckedChanged += delegate { if (!loading) { work.MediaBar = tgMedia.Checked; Changed(); } };
+
+            AddLabel(p, Str.OtherSection, 0, 368, 352, 24, "heading");
+            tgAutostart = Row(p, Str.StartWithWindows, 402, Autostart.IsEnabled());
             tgAutostart.CheckedChanged += delegate { if (!loading) Autostart.Set(tgAutostart.Checked); };
-            tgNotice = Row(p, Str.LaunchNotice, 402, work.LaunchNotice);
+            tgNotice = Row(p, Str.LaunchNotice, 438, work.LaunchNotice);
             tgNotice.CheckedChanged += delegate { if (!loading) { work.LaunchNotice = tgNotice.Checked; Changed(); } };
-            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 440, 220, 24);
+            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 476, 220, 24);
             restore.Click += delegate { RestoreDefaults(); };
 
             belowError = new System.Collections.Generic.List<Control>();
