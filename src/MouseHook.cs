@@ -27,12 +27,12 @@ namespace QuickCut
         readonly HookProc proc; // keep a reference so the GC doesn't collect the delegate
         readonly IntPtr hook;
         readonly RingForm ring;
-        readonly Func<bool> allowed;
+        readonly Func<Point, bool> allowed; // may the ring open at this point?
         uint lastDownTime;
         Point lastDownPt;
         bool swallowUp;
 
-        public MouseHook(RingForm ring, Func<bool> allowed)
+        public MouseHook(RingForm ring, Func<Point, bool> allowed)
         {
             this.ring = ring;
             this.allowed = allowed;
@@ -81,7 +81,7 @@ namespace QuickCut
             if (!isDouble) { lastDownTime = time; lastDownPt = pt; return false; }
 
             lastDownTime = 0;
-            if (!allowed()) return false;
+            if (!allowed(pt)) return false;
             swallowUp = true;
             ring.BeginInvoke((Action)delegate { ring.ShowRing(RingForm.HoldMouse); });
             return true;

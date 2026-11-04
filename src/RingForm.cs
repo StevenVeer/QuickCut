@@ -1,8 +1,6 @@
 using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.Drawing.Text;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -12,22 +10,20 @@ namespace QuickCut
     // and it only renders on show / hover change.
     class RingForm : Form
     {
-        const int HitNone = -1, HitCenter = -2;
+        const int HitNone = RingRenderer.HitNone, HitCenter = RingRenderer.HitCenter;
         // How the ring was opened: HoldNone = click mode, HoldMouse = right button held, > 0 = virtual key held.
         public const int HoldNone = 0, HoldMouse = -1;
 
         Config cfg;
-        readonly System.Windows.Forms.Timer holdTimer;
+        Palette pal;
+        float dpi; // scale of the monitor the ring was last shown on
+        RingRenderer rr;
+        int size;
+        readonly System.Windows.Forms.Timer fadeTimer, holdTimer;
         int holdSource;
         bool holding, moved;
         int openHover;
-        readonly float sc;
-        readonly int size;
-        readonly float cx, cy, rOuter, rInner, rCenter;
-        readonly Font labelFont;
-        readonly System.Windows.Forms.Timer fadeTimer;
         Bitmap frame;
-        Color accent = Art.Brand;
         int hover = HitNone;
         byte alpha = 255;
         IntPtr prevWindow;
@@ -35,20 +31,15 @@ namespace QuickCut
         public RingForm(Config cfg)
         {
             this.cfg = cfg;
-            using (Graphics g = Graphics.FromHwnd(IntPtr.Zero)) sc = g.DpiX / 96f;
-            size = (int)Math.Round(320 * sc);
-            cx = cy = size / 2f;
-            rOuter = 148 * sc;
-            rInner = 66 * sc;
-            rCenter = 57 * sc;
-            labelFont = new Font("Segoe UI", 11.5f * sc, GraphicsUnit.Pixel);
+            dpi = Native.ScaleAt(Cursor.Position);
+            pal = Palette.Get(cfg);
 
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
             KeyPreview = true;
-            Size = new Size(size, size);
+            RebuildRenderer();
 
             fadeTimer = new System.Windows.Forms.Timer();
             fadeTimer.Interval = 15;
@@ -82,8 +73,20 @@ namespace QuickCut
 
         public void SetConfig(Config c)
         {
+            bool resized = c.SizeFactor != cfg.SizeFactor;
             cfg = c;
             Art.ClearIconCache();
+            if (resized) { HideRing(); RebuildRenderer(); }
+        }
+
+        // (Re)creates the renderer for the DPI and the chosen ring size.
+        void RebuildRenderer()
+        {
+            if (rr != null) rr.Dispose();
+            rr = new RingRenderer(dpi * cfg.SizeFactor, cfg.SizeFactor);
+            size = rr.Size;
+            if (frame != null) { frame.Dispose(); frame = null; }
+            Size = new Size(size, size);
         }
 
         public void ShowRing() { ShowRing(HoldNone); }
@@ -93,11 +96,14 @@ namespace QuickCut
             if (Visible) HideRing();
             prevWindow = Native.GetForegroundWindow();
             Point m = Cursor.Position;
+            // Render at the scale of this monitor, so the ring is sharp on every screen.
+            float d = Native.ScaleAt(m);
+            if (d != dpi) { dpi = d; RebuildRenderer(); }
             Rectangle wa = Screen.FromPoint(m).WorkingArea;
             int x = Math.Max(wa.Left, Math.Min(m.X - size / 2, wa.Right - size));
             int y = Math.Max(wa.Top, Math.Min(m.Y - size / 2, wa.Bottom - size));
             Location = new Point(x, y);
-            accent = Art.Accent();
+            pal = Palette.Get(cfg); // follows Windows light/dark and accent changes
             hover = HitTest(new Point(m.X - x, m.Y - y));
             openHover = hover;
             holdSource = hold;
@@ -146,25 +152,13 @@ namespace QuickCut
 
         public bool ContainsScreenPoint(Point p)
         {
-            float dx = p.X - Left - cx, dy = p.Y - Top - cy;
-            return dx * dx + dy * dy <= rOuter * rOuter;
+            return rr.Contains(new PointF(p.X - Left, p.Y - Top));
         }
 
         // ---------- input ----------
 
-        int HitTest(Point p)
-        {
-            float dx = p.X - cx, dy = p.Y - cy;
-            double d = Math.Sqrt(dx * dx + dy * dy);
-            if (d <= rCenter) return HitCenter;
-            int n = cfg.Items.Count;
-            // While holding, only the direction matters, so overshooting the ring still selects.
-            if (n == 0 || d < rInner - 4 * sc || (d > rOuter && !holding)) return HitNone;
-            double sweep = 360.0 / n;
-            double rel = Math.Atan2(dy, dx) * 180 / Math.PI + 90 + sweep / 2;
-            rel = ((rel % 360) + 360) % 360;
-            return (int)(rel / sweep) % n;
-        }
+        // While holding, only the direction matters, so overshooting the ring still selects.
+        int HitTest(Point p) { return rr.HitTest(p, cfg.Items.Count, holding); }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
@@ -252,7 +246,7 @@ namespace QuickCut
             using (Graphics g = Graphics.FromImage(frame))
             {
                 g.Clear(Color.Transparent);
-                DrawRing(g);
+                rr.Draw(g, cfg, pal, hover, HitNone, true);
             }
             Apply();
         }
@@ -280,107 +274,18 @@ namespace QuickCut
             }
         }
 
-        void DrawRing(Graphics g)
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-            int n = cfg.Items.Count;
-            float sweep = n > 0 ? 360f / n : 360f;
-
-            // Soft shadow
-            using (SolidBrush sh = new SolidBrush(Color.FromArgb(16, 0, 0, 0)))
-                for (int i = 1; i <= 5; i++)
-                {
-                    float r = rOuter + i * 1.8f * sc;
-                    g.FillEllipse(sh, cx - r, cy - r + 2 * sc, 2 * r, 2 * r);
-                }
-
-            // Ring
-            using (GraphicsPath ring = Art.Donut(cx, cy, rOuter, rInner))
-            using (SolidBrush b = new SolidBrush(Color.FromArgb(240, 30, 31, 38)))
-                g.FillPath(b, ring);
-            using (Pen rim = new Pen(Color.FromArgb(45, 255, 255, 255), sc))
-            {
-                g.DrawEllipse(rim, cx - rOuter, cy - rOuter, 2 * rOuter, 2 * rOuter);
-                g.DrawEllipse(rim, cx - rInner, cy - rInner, 2 * rInner, 2 * rInner);
-            }
-
-            // Hovered segment
-            if (hover >= 0 && n > 0)
-            {
-                float ro = rOuter - 5 * sc, ri = rInner + 5 * sc;
-                float gapDeg = n > 1 ? (float)(4 * sc / ((ro + ri) / 2) * 180 / Math.PI) : 0;
-                float start = -90 + hover * sweep - sweep / 2 + gapDeg / 2;
-                using (GraphicsPath p = n == 1 ? Art.Donut(cx, cy, ro, ri) : Art.Sector(cx, cy, ro, ri, start, sweep - gapDeg))
-                using (SolidBrush b = new SolidBrush(Color.FromArgb(235, accent)))
-                    g.FillPath(b, p);
-            }
-
-            // Separators
-            if (n > 1)
-                using (Pen sep = new Pen(Color.FromArgb(40, 255, 255, 255), 1.2f * sc))
-                    for (int k = 0; k < n; k++)
-                    {
-                        if (hover >= 0 && (k == hover || k == (hover + 1) % n)) continue;
-                        double a = (-90 - sweep / 2 + k * sweep) * Math.PI / 180;
-                        float cos = (float)Math.Cos(a), sin = (float)Math.Sin(a);
-                        g.DrawLine(sep, cx + cos * (rInner + 10 * sc), cy + sin * (rInner + 10 * sc),
-                                        cx + cos * (rOuter - 10 * sc), cy + sin * (rOuter - 10 * sc));
-                    }
-
-            // Segment contents
-            float rMid = (rOuter + rInner) / 2;
-            float iconSz = (n > 8 ? 24 : 30) * sc;
-            float labelW = Math.Min(86 * sc, n > 1 ? (float)(2 * rMid * Math.Sin(Math.PI / n)) - 6 * sc : 86 * sc);
-            using (StringFormat sf = new StringFormat(StringFormatFlags.NoWrap))
-            using (SolidBrush text = new SolidBrush(Color.FromArgb(225, 255, 255, 255)))
-            using (SolidBrush textHot = new SolidBrush(Color.White))
-            {
-                sf.Alignment = StringAlignment.Center;
-                sf.Trimming = StringTrimming.EllipsisCharacter;
-                for (int i = 0; i < n; i++)
-                {
-                    double a = (-90 + i * sweep) * Math.PI / 180;
-                    float px = cx + (float)Math.Cos(a) * rMid, py = cy + (float)Math.Sin(a) * rMid;
-                    bool hot = i == hover;
-                    RectangleF ir = new RectangleF(px - iconSz / 2, py - iconSz / 2 - 8 * sc, iconSz, iconSz);
-                    Art.DrawItem(g, cfg.Items[i], ir, hot ? Color.White : Color.FromArgb(235, 236, 240));
-                    RectangleF lr = new RectangleF(px - labelW / 2, ir.Bottom + 3 * sc, labelW, 16 * sc);
-                    g.DrawString(cfg.Items[i].Label, labelFont, hot ? textHot : text, lr, sf);
-                }
-
-                // Center button
-                bool hc = hover == HitCenter;
-                using (SolidBrush cb = new SolidBrush(hc ? accent : Color.FromArgb(245, 44, 46, 56)))
-                    g.FillEllipse(cb, cx - rCenter, cy - rCenter, 2 * rCenter, 2 * rCenter);
-                using (Pen rim = new Pen(Color.FromArgb(50, 255, 255, 255), sc))
-                    g.DrawEllipse(rim, cx - rCenter, cy - rCenter, 2 * rCenter, 2 * rCenter);
-                float gs = 34 * sc;
-                RectangleF gr = new RectangleF(cx - gs / 2, cy - gs / 2 - 8 * sc, gs, gs);
-                Art.DrawItem(g, cfg.Center, gr, Color.White);
-                RectangleF clr = new RectangleF(cx - rCenter + 8 * sc, gr.Bottom + 3 * sc, 2 * rCenter - 16 * sc, 16 * sc);
-                g.DrawString(cfg.Center.Label, labelFont, textHot, clr, sf);
-            }
-        }
-
         // Renders the ring over a grey background into a PNG (used to check the design).
         public static void SavePreview(Config cfg, string path, int hoverIndex)
         {
-            using (RingForm f = new RingForm(cfg))
+            using (RingRenderer r = new RingRenderer(1f))
+            using (Bitmap outp = new Bitmap(r.Size, r.Size))
             {
-                f.hover = hoverIndex;
-                f.frame = new Bitmap(f.size, f.size, PixelFormat.Format32bppArgb);
-                using (Graphics g = Graphics.FromImage(f.frame)) { g.Clear(Color.Transparent); f.DrawRing(g); }
-                using (Bitmap outp = new Bitmap(f.size, f.size))
+                using (Graphics g = Graphics.FromImage(outp))
                 {
-                    using (Graphics g = Graphics.FromImage(outp))
-                    {
-                        g.Clear(Color.FromArgb(120, 130, 150));
-                        g.DrawImage(f.frame, 0, 0);
-                    }
-                    outp.Save(path, ImageFormat.Png);
+                    g.Clear(Color.FromArgb(120, 130, 150));
+                    r.Draw(g, cfg, Palette.Get(cfg), hoverIndex, HitNone, true);
                 }
+                outp.Save(path, ImageFormat.Png);
             }
         }
 
@@ -390,7 +295,7 @@ namespace QuickCut
             {
                 fadeTimer.Dispose();
                 holdTimer.Dispose();
-                labelFont.Dispose();
+                rr.Dispose();
                 if (frame != null) frame.Dispose();
             }
             base.Dispose(disposing);

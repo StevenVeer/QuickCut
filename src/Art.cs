@@ -65,7 +65,7 @@ namespace QuickCut
             else DrawLetter(g, it.Label, r, col);
         }
 
-        static void DrawMedia(Graphics g, string id, RectangleF r, Color col)
+        public static void DrawMedia(Graphics g, string id, RectangleF r, Color col)
         {
             float x = r.X, y = r.Y, s = Math.Min(r.Width, r.Height);
             bool mirror = id == "prev";
@@ -119,7 +119,7 @@ namespace QuickCut
             }
         }
 
-        static void DrawGlobe(Graphics g, RectangleF r, Color col)
+        public static void DrawGlobe(Graphics g, RectangleF r, Color col)
         {
             float x = r.X, y = r.Y, s = Math.Min(r.Width, r.Height);
             using (Pen p = new Pen(col, Math.Max(1.2f, s * 0.06f)))
@@ -130,7 +130,7 @@ namespace QuickCut
             }
         }
 
-        static void DrawKeyboard(Graphics g, RectangleF r, Color col)
+        public static void DrawKeyboard(Graphics g, RectangleF r, Color col)
         {
             float x = r.X, y = r.Y, s = Math.Min(r.Width, r.Height);
             using (Pen p = new Pen(col, Math.Max(1.2f, s * 0.06f)))
@@ -173,7 +173,7 @@ namespace QuickCut
             try
             {
                 string path = it.Type == ActionType.Program ? Actions.ExpandPath(it.Target) : ProtocolHandler(it.Target);
-                if (!string.IsNullOrEmpty(path) && (File.Exists(path) || Directory.Exists(path)))
+                if (!string.IsNullOrEmpty(path) && (File.Exists(path) || Directory.Exists(path) || AppCatalog.IsAppsFolder(path)))
                     bmp = ShellIcon(path, large);
             }
             catch { }
@@ -181,11 +181,45 @@ namespace QuickCut
             return bmp;
         }
 
+        // Icon for any file or folder (used by the app picker and the settings window).
+        public static Bitmap PathIcon(string path, bool large)
+        {
+            string key = "path:" + path + ":" + large;
+            Bitmap bmp;
+            if (iconCache.TryGetValue(key, out bmp)) return bmp;
+            bmp = null;
+            try
+            {
+                string p = Actions.ExpandPath(path);
+                if (p.Length > 0 && (File.Exists(p) || Directory.Exists(p) || AppCatalog.IsAppsFolder(p))) bmp = ShellIcon(p, large);
+            }
+            catch { }
+            iconCache[key] = bmp;
+            return bmp;
+        }
+
+        public static void DrawApps(Graphics g, RectangleF r, Color col)
+        {
+            float x = r.X, y = r.Y, s = Math.Min(r.Width, r.Height), q = s * 0.36f, gap = s * 0.12f;
+            using (Pen p = new Pen(col, Math.Max(1.2f, s * 0.06f)))
+                for (int i = 0; i < 4; i++)
+                    g.DrawRectangle(p, x + (i % 2) * (q + gap) + s * 0.08f, y + (i / 2) * (q + gap) + s * 0.08f, q, q);
+        }
+
         static Bitmap ShellIcon(string path, bool large)
         {
-            const uint SHGFI_SYSICONINDEX = 0x4000;
+            const uint SHGFI_SYSICONINDEX = 0x4000, SHGFI_PIDL = 0x8;
             Native.SHFILEINFO info = new Native.SHFILEINFO();
-            if (Native.SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf(info), SHGFI_SYSICONINDEX) == IntPtr.Zero) return null;
+            uint size = (uint)Marshal.SizeOf(info);
+            if (AppCatalog.IsAppsFolder(path))
+            {
+                // Store apps have no file path: resolve the shell item and ask for its icon.
+                IntPtr pidl; uint attrs;
+                if (Native.SHParseDisplayName(path, IntPtr.Zero, out pidl, 0, out attrs) != 0) return null;
+                try { if (Native.SHGetFileInfoPidl(pidl, 0, ref info, size, SHGFI_SYSICONINDEX | SHGFI_PIDL) == IntPtr.Zero) return null; }
+                finally { Marshal.FreeCoTaskMem(pidl); }
+            }
+            else if (Native.SHGetFileInfo(path, 0, ref info, size, SHGFI_SYSICONINDEX) == IntPtr.Zero) return null;
             Guid iid = new Guid("46EB5926-582E-4017-9FDF-E8998DAA0950"); // IImageList
             IntPtr list;
             if (Native.SHGetImageList(large ? 2 : 0, ref iid, out list) != 0) return null; // 2 = 48px, 0 = 32px
@@ -203,14 +237,7 @@ namespace QuickCut
             if (c <= 1 || Actions.IsWebUrl(url)) return null;
             string scheme = url.Substring(0, c);
             using (RegistryKey k = Registry.ClassesRoot.OpenSubKey(scheme + @"\shell\open\command"))
-            {
-                string cmd = k == null ? null : k.GetValue("") as string;
-                if (string.IsNullOrEmpty(cmd)) return null;
-                cmd = cmd.Trim();
-                if (cmd.StartsWith("\"")) { int e = cmd.IndexOf('"', 1); return e > 1 ? cmd.Substring(1, e - 1) : null; }
-                int sp = cmd.IndexOf(' ');
-                return sp > 0 ? cmd.Substring(0, sp) : cmd;
-            }
+                return AppCatalog.ExeFromCommand(k == null ? null : k.GetValue("") as string);
         }
 
         // ---------- app icon ----------

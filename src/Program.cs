@@ -20,7 +20,19 @@ namespace QuickCut
             if (args.Length == 2 && args[0] == "--make-icon") { Art.WriteIco(args[1]); return 0; }
             if (args.Length >= 2 && args[0] == "--preview")
             {
-                RingForm.SavePreview(Config.CreateDefault(), args[1], args.Length > 2 ? int.Parse(args[2]) : 0);
+                // --preview out.png [hoverIndex] [theme] [hoverStyle]
+                Config pc = Config.CreateDefault();
+                if (args.Length > 3) pc.ThemeMode = args[3];
+                if (args.Length > 4) pc.HoverStyle = args[4];
+                RingForm.SavePreview(pc, args[1], args.Length > 2 ? int.Parse(args[2]) : 0);
+                return 0;
+            }
+
+            if (args.Length >= 2 && args[0] == "--settings-preview")
+            {
+                // --settings-preview out.png [theme] [tabIndex] [size]
+                Application.EnableVisualStyles();
+                SettingsForm.SavePreview(args[1], args.Length > 2 ? args[2] : "system", args.Length > 3 ? int.Parse(args[3]) : 0, args.Length > 4 ? args[4] : "medium");
                 return 0;
             }
 
@@ -79,8 +91,7 @@ namespace QuickCut
             if (!RegisterHotkey(cfg.Hotkey))
                 Notify(string.Format(Str.HotkeyInUse, cfg.Hotkey), true);
             else if (firstRun)
-                Notify(string.Format(Str.TrayRunning, cfg.Hotkey), false);
-            UpdateMouseHook();
+                Notify(string.Format(Str.TrayRunning, cfg.Hotkey), false);            UpdateMouseHook();
             UpdateTrayText();
         }
 
@@ -95,7 +106,14 @@ namespace QuickCut
         void UpdateMouseHook()
         {
             if (cfg.MouseTrigger && mouseHook == null)
-                mouseHook = new MouseHook(ring, delegate { return settings == null && !(cfg.SkipFullscreen && MouseHook.ForegroundIsFullscreen()); });
+                mouseHook = new MouseHook(ring, delegate(System.Drawing.Point pt)
+                {
+                    // Not inside the settings window (right-clicks there are for text fields etc.),
+                    // but everywhere else, so you can try your changes while settings stays open.
+                    bool overSettings = settings != null && settings.Visible && settings.WindowState != FormWindowState.Minimized
+                        && settings.Bounds.Contains(pt);
+                    return !overSettings && !(cfg.SkipFullscreen && MouseHook.ForegroundIsFullscreen());
+                });
             else if (!cfg.MouseTrigger && mouseHook != null)
             {
                 mouseHook.Dispose();
@@ -117,25 +135,29 @@ namespace QuickCut
         public void SuspendHotkey() { Native.UnregisterHotKey(msgWin.Handle, HotkeyId); }
         public void ResumeHotkey() { if (activeHotkey != null) RegisterHotkey(activeHotkey); }
 
-        public bool ApplyConfig(Config newCfg, bool autostart, out string error)
+        // True when the configured hotkey is actually registered with Windows.
+        public bool HotkeyActive { get { return activeHotkey != null && activeHotkey == cfg.Hotkey; } }
+
+        // Saves and applies everything. A hotkey that Windows refuses doesn't block saving:
+        // it's reported in hotkeyError and the other changes still go through.
+        public bool ApplyConfig(Config newCfg, out string saveError, out string hotkeyError)
         {
-            error = null;
+            saveError = hotkeyError = null;
             if (newCfg.Hotkey != activeHotkey)
             {
                 string old = activeHotkey;
                 if (!RegisterHotkey(newCfg.Hotkey))
                 {
-                    if (old != null) RegisterHotkey(old);
-                    error = string.Format(Str.HotkeyUnavailable, newCfg.Hotkey);
-                    return false;
+                    activeHotkey = null;
+                    if (old != null) RegisterHotkey(old); // keep the previous one working
+                    hotkeyError = string.Format(Str.HotkeyUnavailable, newCfg.Hotkey);
                 }
             }
             cfg = newCfg;
             try { cfg.Save(); }
-            catch (Exception ex) { error = string.Format(Str.SaveFailed, ex.Message); return false; }
+            catch (Exception ex) { saveError = string.Format(Str.SaveFailed, ex.Message); return false; }
             ring.SetConfig(cfg);
             UpdateMouseHook();
-            if (autostart != Autostart.IsEnabled()) Autostart.Set(autostart);
             UpdateTrayText();
             return true;
         }
@@ -217,6 +239,7 @@ namespace QuickCut
         [DllImport("user32.dll")] public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint RegisterWindowMessage(string name);
         [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr w, IntPtr l);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr w, string l);
         [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int pid);
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -237,6 +260,21 @@ namespace QuickCut
         [DllImport("user32.dll")]
         public static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, ref POINT pptDst, ref SIZE psize,
             IntPtr hdcSrc, ref POINT pptSrc, int crKey, ref BLENDFUNCTION pblend, int dwFlags);
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+        [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint dpiX, out uint dpiY);
+
+        // Scale factor (1.0 = 100%) of the monitor that contains the point.
+        public static float ScaleAt(System.Drawing.Point p)
+        {
+            try
+            {
+                uint x, y;
+                if (GetDpiForMonitor(MonitorFromPoint(new POINT(p.X, p.Y), 2 /*nearest*/), 0 /*effective*/, out x, out y) == 0) return x / 96f;
+            }
+            catch { } // shcore.dll missing (Windows 7)
+            using (System.Drawing.Graphics g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero)) return g.DpiX / 96f;
+        }
+
         [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hWnd, IntPtr hdc);
         [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
@@ -253,6 +291,10 @@ namespace QuickCut
         }
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr SHGetFileInfo(string path, uint attrs, ref SHFILEINFO info, uint size, uint flags);
+        [DllImport("shell32.dll", EntryPoint = "SHGetFileInfoW", CharSet = CharSet.Unicode)]
+        public static extern IntPtr SHGetFileInfoPidl(IntPtr pidl, uint attrs, ref SHFILEINFO info, uint size, uint flags);
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        public static extern int SHParseDisplayName(string name, IntPtr bindCtx, out IntPtr pidl, uint sfgaoIn, out uint sfgaoOut);
         [DllImport("shell32.dll", EntryPoint = "#727")]
         public static extern int SHGetImageList(int list, ref Guid riid, out IntPtr ppv);
         [DllImport("comctl32.dll")] public static extern IntPtr ImageList_GetIcon(IntPtr himl, int i, int flags);

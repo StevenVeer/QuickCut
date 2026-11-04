@@ -11,12 +11,12 @@ namespace QuickCut
         public static string MenuExit = "Exit";
         public static string TrayRunning = "QuickCut is running in the background. Double right-click (or press {0}) to open the ring.";
         public static string HotkeyInUse = "The hotkey {0} is already used by another program. Pick a different one in Settings.";
-        public static string HotkeyUnavailable = "The hotkey {0} can't be used (already taken by Windows or another program). Pick a different combination.";
+        public static string HotkeyUnavailable = "{0} is already taken by Windows or another program. Try a different combination.";
         public static string SaveFailed = "Saving failed: {0}";
         public static string RunFailed = "Couldn't run \"{0}\":\n{1}";
 
         // Actions
-        public static string NoProgram = "No program set.";
+        public static string NoProgram = "No app set.";
         public static string NoAddress = "No address set.";
         public static string UnknownMedia = "Unknown media action: {0}";
         public static string InvalidCombo = "Invalid key combination: {0}";
@@ -27,39 +27,69 @@ namespace QuickCut
         public static string DefaultExplorer = "Explorer";
 
         // Settings window
-        public static string SettingsTitle = "QuickCut - Settings";
-        public static string HotkeyLabel = "Hotkey to open the ring";
-        public static string Default = "Default";
-        public static string Hint = "Hold, move to a button and release to pick it. A quick tap keeps the ring open: click or 1-9 = button, Space = center, scroll = volume, Esc = close.";
-        public static string MouseTrigger = "Also open with a double right-click";
-        public static string SkipFullscreen = "Not in fullscreen (games)";
-        public static string ButtonsLabel = "Buttons in the ring";
-        public static string Add = "Add";
-        public static string Remove = "Remove";
-        public static string MoveUp = "Move up";
-        public static string MoveDown = "Move down";
-        public static string EditButton = "Edit button";
+        public static string SettingsTitle = "QuickCut settings";
+        public static string Saving = "Saving…";
+        public static string AllSaved = "✓ All changes saved";
+        public static string NotSaved = "Couldn't save your changes";
+        public static string[] Tabs = { "Buttons", "Appearance", "General" };
+        public static string PreviewHint = "Click a button in the ring to edit it, or drag it to move it.";
+        public static string AddButton = "Add button";
+        public static string MoveLeft = "↺  Move";  // ↺
+        public static string MoveRight = "Move  ↻"; // ↻
+        public static string MoveCounterClockwise = "Move counter-clockwise";
+        public static string MoveClockwise = "Move clockwise";
+
+        // Buttons tab
         public static string CenterButton = "Center button";
         public static string ButtonN = "Button {0}";
-        public static string Type = "Type";
-        public static string[] TypeNames = { "Program / file / folder", "Website / link", "Media action (Spotify etc.)", "Key combination" };
-        public static string Name = "Name (text in the ring)";
-        public static string TargetProgram = "Program, file or folder";
-        public static string TargetUrl = "Web address (e.g. youtube.com)";
-        public static string TargetMedia = "Action (works with Spotify, YouTube, etc.)";
-        public static string TargetKeys = "Keys (click and press)";
-        public static string Browse = "Browse...";
+        public static string Remove = "Remove";
+        public static string WhatShouldItDo = "What should it do?";
+        public static string[] TypeTiles = { "Open app", "Website", "Media", "Shortcut" };
+        public static string AppLabel = "App";
+        public static string ChooseApp = "Choose an app";
+        public static string PickApp = "Pick app";
+        public static string BrowseFile = "Browse for a file";
         public static string Arguments = "Arguments (optional)";
-        public static string Test = "Test";
-        public static string StartWithWindows = "Start with Windows";
-        public static string Save = "Save";
+        public static string WebAddress = "Web address";
+        public static string WebCue = "youtube.com";
+        public static string MediaAction = "Action";
+        public static string KeysToSend = "Shortcut to send";
+        public static string Label = "Label";
+        public static string ButtonColor = "Button color";
+        public static string Test = "▶  Test this button";
+
+        // Appearance tab
+        public static string Theme = "Theme";
+        public static string[] ThemeOptions = { "Windows setting", "Light", "Dark" };
+        public static string RingSize = "Ring size";
+        public static string[] SizeOptions = { "Small", "Medium", "Large" };
+        public static string ButtonColorAll = "Button color (all buttons)";
+        public static string HoverColor = "Hover color";
+        public static string HoverStyle = "Hover style";
+        public static string[] HoverOptions = { "Fill", "Inverted", "Outline", "Grow" };
+        public static string HoverHint = "Hover over the ring on the left to try it. \"A\" is the default color, \"W\" your Windows accent color.";
+        public static string ResetAppearance = "Reset to defaults";
+
+        // General tab
+        public static string OpeningSection = "Opening the ring";
+        public static string OpenDoubleRight = "Double right-click";
+        public static string NotFullscreen = "Don't open over fullscreen apps (games)";
+        public static string KeyboardShortcut = "Keyboard shortcut";
+        public static string Default = "Default";
+        public static string Hint = "Hold, move to a button and release to pick it. A quick tap keeps the ring open: click or 1-9 = button, Space = center, scroll = volume, Esc = close.";
+        public static string OtherSection = "Other";
+        public static string StartWithWindows = "Start with Windows";        public static string RestoreButtons = "Restore default buttons";
+        public static string RestoreConfirm = "Replace all buttons with the suggested defaults?";
+
+        // App picker and dialogs
+        public static string PickAppTitle = "Pick an app";
+        public static string SearchApps = "Search apps";
+        public static string Suggested = "Suggested";
+        public static string AllApps = "All apps";
+        public static string Select = "Select";
         public static string Cancel = "Cancel";
-        public static string Center = "Center: {0}";
-        public static string Unnamed = "(unnamed)";
-        public static string PressKeys = "(click and press keys)";
-        public static string BrowseTitle = "Choose a program or shortcut";
+        public static string PressKeys = "Click here and press the keys";
+        public static string BrowseTitle = "Choose a file";
         public static string BrowseFilter = "Programs and shortcuts|*.exe;*.lnk;*.bat;*.cmd;*.url|All files|*.*";
-        public static string NeedTarget = "Please enter a program or address.";
-        public static string NeedCombo = "Please set a key combination.";
     }
 }

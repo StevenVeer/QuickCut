@@ -1,6 +1,6 @@
 # QuickCut
 
-A tiny Windows app (~60 KB) that opens a ring of buttons around your mouse with one shortcut:
+A tiny Windows app (~100 KB) that opens a ring of buttons around your mouse with one shortcut:
 launch programs, open websites, control media (Spotify, YouTube, ...) or send key combinations.
 
 - Open: **double right-click** or the hotkey **Ctrl+Alt+Space** (changeable in Settings).
