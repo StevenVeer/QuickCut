@@ -41,6 +41,8 @@ namespace QuickCut
                 {
                     string path = ExpandPath(it.Target);
                     if (path.Length == 0) throw new InvalidOperationException(Str.NoProgram);
+                    // Already open: go to its window instead of starting another copy (browsers would open a new window).
+                    if (WindowSwitcher.TrySwitch(path)) break;
                     ProcessStartInfo psi = new ProcessStartInfo(path);
                     psi.UseShellExecute = true;
                     if (!string.IsNullOrEmpty(it.Args)) psi.Arguments = Environment.ExpandEnvironmentVariables(it.Args);
