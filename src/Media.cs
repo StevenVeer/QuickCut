@@ -98,7 +98,7 @@ namespace QuickCut
         static Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager mgr;
 
         // Waits for a WinRT call without the SDK's await helpers (they need the SDK's Windows.winmd).
-        static T Wait<T>(Windows.Foundation.IAsyncOperation<T> op)
+        internal static T Wait<T>(Windows.Foundation.IAsyncOperation<T> op)
         {
             int waited = 0;
             while (op.Status == Windows.Foundation.AsyncStatus.Started)

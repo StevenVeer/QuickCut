@@ -5,7 +5,7 @@ cd /d "%~dp0"
 set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 rem The WinRT metadata (what's playing) ships with Windows 10/11, no SDK needed.
 set WINMD=%WINDIR%\System32\WinMetadata
-set REFS=/r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\System.Runtime.dll /r:%WINMD%\Windows.Foundation.winmd /r:%WINMD%\Windows.Media.winmd /r:%WINMD%\Windows.Storage.winmd
+set REFS=/r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\System.Runtime.dll /r:%WINMD%\Windows.Foundation.winmd /r:%WINMD%\Windows.Media.winmd /r:%WINMD%\Windows.Storage.winmd /r:%WINMD%\Windows.ApplicationModel.winmd
 if not exist build mkdir build
 
 rem Pass 1: helper build that draws the icon

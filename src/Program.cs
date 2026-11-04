@@ -247,6 +247,9 @@ namespace QuickCut
     // Windows only launches a Run entry at login when Explorer's StartupApproved list marks it as
     // enabled (first byte 0x02; 0x03 = disabled in Task Manager). Newer Windows builds skip entries
     // that are missing from that list, so both values have to be written.
+    //
+    // The Store (MSIX) version can't use this: a packaged app's registry writes go to its own private
+    // copy, which Explorer never reads. There it uses the package's startup task instead.
     static class Autostart
     {
         const string Name = "QuickCut";
@@ -255,8 +258,35 @@ namespace QuickCut
 
         static string Command { get { return "\"" + Application.ExecutablePath + "\""; } }
 
+        // True when running from an installed package (the Store version).
+        public static readonly bool Packaged = IsPackaged();
+
+        static bool IsPackaged()
+        {
+            try
+            {
+                int len = 0;
+                return GetCurrentPackageFullName(ref len, null) != 15700; // APPMODEL_ERROR_NO_PACKAGE
+            }
+            catch { return false; } // Windows 7: no package support at all
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        static extern int GetCurrentPackageFullName(ref int length, System.Text.StringBuilder name);
+
+        // Turned off by the user in Task Manager (Store version only): only they can turn it back on there.
+        public static bool BlockedByUser()
+        {
+            if (!Packaged) return false;
+            try { return StartupTaskWin.BlockedByUser(); } catch { return false; }
+        }
+
         public static bool IsEnabled()
         {
+            if (Packaged)
+            {
+                try { return StartupTaskWin.IsEnabled(); } catch { return false; }
+            }
             using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey))
                 if (k == null || k.GetValue(Name) == null) return false;
             byte[] state = ApprovedState();
@@ -265,6 +295,11 @@ namespace QuickCut
 
         public static void Set(bool on)
         {
+            if (Packaged)
+            {
+                try { StartupTaskWin.Set(on); } catch { }
+                return;
+            }
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RunKey))
             {
                 if (on) k.SetValue(Name, Command);
@@ -281,6 +316,7 @@ namespace QuickCut
         // add the missing approval. Never overrides a "disabled" the user set in Task Manager.
         public static void Repair()
         {
+            if (Packaged) return; // the startup task always points at the installed app
             try
             {
                 using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey, true))
@@ -298,6 +334,37 @@ namespace QuickCut
         {
             using (RegistryKey k = Registry.CurrentUser.OpenSubKey(ApprovedKey))
                 return k == null ? null : k.GetValue(Name) as byte[];
+        }
+    }
+
+    // The WinRT part, kept apart so the plain exe never loads it (and works on Windows 7).
+    // TaskId must match the startupTask entry in the package manifest.
+    static class StartupTaskWin
+    {
+        const string TaskId = "QuickCutStartup";
+
+        static Windows.ApplicationModel.StartupTask Task()
+        {
+            return MediaWin.Wait(Windows.ApplicationModel.StartupTask.GetAsync(TaskId));
+        }
+
+        public static bool IsEnabled()
+        {
+            var s = Task().State;
+            return s == Windows.ApplicationModel.StartupTaskState.Enabled
+                || s == Windows.ApplicationModel.StartupTaskState.EnabledByPolicy;
+        }
+
+        public static bool BlockedByUser()
+        {
+            return Task().State == Windows.ApplicationModel.StartupTaskState.DisabledByUser;
+        }
+
+        public static void Set(bool on)
+        {
+            var t = Task();
+            if (on) MediaWin.Wait(t.RequestEnableAsync()); // does nothing if the user turned it off in Task Manager
+            else t.Disable();
         }
     }
 

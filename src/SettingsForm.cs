@@ -339,7 +339,17 @@ namespace QuickCut
 
             AddLabel(p, Str.OtherSection, 0, 368, 352, 24, "heading");
             tgAutostart = Row(p, Str.StartWithWindows, 402, Autostart.IsEnabled());
-            tgAutostart.CheckedChanged += delegate { if (!loading) Autostart.Set(tgAutostart.Checked); };
+            tgAutostart.CheckedChanged += delegate
+            {
+                if (loading) return;
+                Autostart.Set(tgAutostart.Checked);
+                bool actual = Autostart.IsEnabled();
+                if (actual == tgAutostart.Checked) return;
+                // Windows didn't take it (Store version, turned off in Task Manager): show the real state.
+                loading = true; tgAutostart.Checked = actual; loading = false;
+                if (Autostart.BlockedByUser())
+                    MessageBox.Show(this, Str.StartupBlockedByUser, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            };
             tgNotice = Row(p, Str.LaunchNotice, 438, work.LaunchNotice);
             tgNotice.CheckedChanged += delegate { if (!loading) { work.LaunchNotice = tgNotice.Checked; Changed(); } };
             FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 476, 220, 24);

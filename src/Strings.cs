@@ -107,6 +107,8 @@ namespace QuickCut
         public static string[] VolumeStepOptions = { "5%", "10%" };
         public static string OtherSection = "Other";
         public static string StartWithWindows = "Start with Windows";
+        public static string StartupBlockedByUser = "Starting with Windows was turned off in Task Manager.\n\n" +
+            "To turn it back on, open Task Manager > Startup apps, select QuickCut and choose Enable.";
         public static string LaunchNotice = "Show a notice when QuickCut starts";
         public static string RestoreButtons = "Restore default buttons";
         public static string ReportBug = "Report a bug";
