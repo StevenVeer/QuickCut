@@ -380,6 +380,9 @@ namespace QuickCut
             if (k >= Keys.D1 && k <= Keys.D9) n = k - Keys.D1;
             else if (k >= Keys.NumPad1 && k <= Keys.NumPad9) n = k - Keys.NumPad1;
             else if (k == Keys.D0 || k == Keys.NumPad0) n = 9;
+            // Buttons 11 and 12: the two keys right after 0 on the number row (and numpad - / +).
+            else if (k == Keys.OemMinus || k == Keys.Subtract) n = 10;
+            else if (k == Keys.Oemplus || k == Keys.Add) n = 11;
 
             if (k == Keys.Escape) HideRing();
             else if (k == Keys.Space || k == Keys.Enter) Run(cfg.Center);

@@ -25,6 +25,7 @@ namespace QuickCutTests
             Tests.HitTestTests();
             Tests.HelperTests();
             Tests.FileTests();
+            SettingsTests.FitScaleTests();
             Tests.KnownBugs();
 
             Group("Safety");

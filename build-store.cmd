@@ -17,7 +17,8 @@ if exist %LAYOUT% rmdir /s /q %LAYOUT%
 
 call "%~dp0build.cmd" %LAYOUT% || exit /b 1
 build\iconmaker.exe --make-store-logos %LAYOUT%\Assets || exit /b 1
-copy /y store\AppxManifest.xml %LAYOUT%\ >nul || exit /b 1
+rem The manifest gets the version from src\Program.cs (Program.Version), the only place to change it.
+build\iconmaker.exe --stamp-manifest store\AppxManifest.xml %LAYOUT%\AppxManifest.xml || (echo Couldn't put the version from src\Program.cs into the manifest. It must end in .0 for the Store. & exit /b 1)
 
 rem Resource index, so Windows can pick the logo that fits each size and screen scale.
 "%SDK%\makepri.exe" createconfig /cf build\priconfig.xml /dq en-US /pv 10.0.0 /o >nul || exit /b 1

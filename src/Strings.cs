@@ -100,7 +100,7 @@ namespace QuickCut
         public static string NotFullscreen = "Don't open over fullscreen apps (games)";
         public static string KeyboardShortcut = "Keyboard shortcut";
         public static string Default = "Default";
-        public static string Hint = "Hold, move and release to pick. Tap to keep it open: number = button, Space = center, scroll = volume, Esc = close.";
+        public static string Hint = "Hold, move, release to pick. Tap to keep it open: 1-9, 0, -, = for buttons, Space = center, scroll = volume, Esc = close.";
         public static string VolumeSection = "Volume and media";
         public static string ShowMedia = "Show what's playing";
         public static string ShowVolume = "Show volume under the ring";

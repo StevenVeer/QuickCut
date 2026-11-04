@@ -5,7 +5,8 @@
   Name, Publisher and PublisherDisplayName come from Partner Center (Product management >
   Product identity) and must stay exactly as they are there.
 
-  Version: raise it for every Store update. The last number must stay 0.
+  Version: don't edit it here. build-store.cmd fills it in from Program.Version in src/Program.cs
+  (raise it there for every Store update; the last number must stay 0).
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"

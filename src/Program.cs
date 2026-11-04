@@ -6,19 +6,25 @@ using Microsoft.Win32;
 
 [assembly: System.Reflection.AssemblyTitle("QuickCut")]
 [assembly: System.Reflection.AssemblyProduct("QuickCut")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion(QuickCut.Program.Version)]
+[assembly: System.Reflection.AssemblyFileVersion(QuickCut.Program.Version)]
 
 namespace QuickCut
 {
     static class Program
     {
+        // The one place to change the version. The exe, the bug report link in Settings and the Store
+        // package (build-store.cmd stamps it into the manifest) all take it from here.
+        // Store rule: raise it for every Store update, and the last number must stay 0.
+        public const string Version = "1.0.0.0";
+
         [STAThread]
         static int Main(string[] args)
         {
             // Build helpers: generate the exe icon / render a preview image of the ring.
             if (args.Length == 2 && args[0] == "--make-icon") { Art.WriteIco(args[1]); return 0; }
             if (args.Length == 2 && args[0] == "--make-store-logos") { Art.WriteStoreLogos(args[1]); return 0; }
+            if (args.Length == 3 && args[0] == "--stamp-manifest") return StampManifest(args[1], args[2]) ? 0 : 1;
             if (args.Length == 2 && args[0] == "--store-shots")
             {
                 Application.EnableVisualStyles();
@@ -68,6 +74,20 @@ namespace QuickCut
                 Application.Run(new App());
             }
             return 0;
+        }
+
+        // Build helper for build-store.cmd: copies the package manifest and puts Version in its
+        // <Identity Version="...">, so the Store package can't drift from the exe. False when the
+        // manifest has no such attribute or the version breaks the Store's "last number is 0" rule.
+        static bool StampManifest(string source, string dest)
+        {
+            if (!Version.EndsWith(".0")) return false;
+            string xml = System.IO.File.ReadAllText(source);
+            System.Text.RegularExpressions.Regex attr = new System.Text.RegularExpressions.Regex("(<Identity\\b[^>]*?\\sVersion=\")[^\"]*(\")");
+            if (!attr.IsMatch(xml)) return false;
+            xml = attr.Replace(xml, "${1}" + Version + "${2}", 1);
+            System.IO.File.WriteAllText(dest, xml, new System.Text.UTF8Encoding(false));
+            return true;
         }
     }
 

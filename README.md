@@ -1,17 +1,20 @@
 # QuickCut
 
-A tiny Windows app (~100 KB) that opens a ring of buttons around your mouse with one shortcut:
+A tiny Windows app (under 200 KB) that opens a ring of buttons around your mouse with one shortcut:
 launch programs, open websites, control media (Spotify, YouTube, ...) or send key combinations.
 
 - Open: **double right-click** or the hotkey **Ctrl + Space** (changeable in Settings).
   Not in fullscreen apps (games), unless you turn that off.
 - **Hold**, move towards a button and release to pick it (with double right-click: hold the second click)
-- A quick tap keeps the ring open: click or 1-9 = button, Space = center, scroll = volume, Esc = close
+- A quick tap keeps the ring open: click a button or press 1-9, 0, -, = (buttons 1-12), Space = center,
+  scroll = volume, Esc = close
 - Volume blocks under the ring: click − / + (hold to repeat) or a block; click the lit block to mute.
   Steps of 5% or 10%, and the blocks can be hidden (Settings > General > Volume)
 - Center = default button (Play/Pause), surrounded by up to 12 buttons of your own
 - Settings: click the tray icon, or start the exe again
 - Settings are stored in `%APPDATA%\QuickCut\config.ini`
+- Shortcut buttons (key combinations) can't send keys to apps running as administrator: Windows
+  blocks that for programs that aren't elevated themselves, and QuickCut doesn't ask for admin rights.
 
 ## Building
 
@@ -46,6 +49,10 @@ build-store.cmd
 This creates `QuickCut.msix` (needs the Windows SDK for `makeappx`/`makepri`). The package
 manifest is `store/AppxManifest.xml`. Before submitting, put in the identity values from
 Partner Center (see the comment at the top of that file). The Store signs the package.
+
+The version is set in one place: `Program.Version` in `src/Program.cs`. The exe uses it, and
+`build-store.cmd` puts it into the package manifest. Raise it for every Store update (the last
+number must stay 0).
 
 To try the Store version on your own PC (Developer Mode on, other QuickCut closed):
 

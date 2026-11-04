@@ -54,9 +54,9 @@ namespace QuickCut
         {
             this.app = app;
             work = cfg.Clone();
-            // Open on the monitor with the mouse, at that monitor's scale.
+            // Open on the monitor with the mouse, at that monitor's scale (smaller if it wouldn't fit).
             Point m = Cursor.Position;
-            sc = Native.ScaleAt(m);
+            sc = FitScale(Native.ScaleAt(m), Screen.FromPoint(m).WorkingArea);
             ThemedControl.S = sc;
             pal = Palette.Get(work);
 
@@ -136,6 +136,17 @@ namespace QuickCut
         // ---------- layout helpers ----------
 
         int S(float v) { return (int)Math.Round(v * sc); }
+
+        // The layout is a fixed 780 x 666 plus the title bar and border. On a small screen with a large
+        // scale (e.g. 1080p at 175%) that runs off the bottom, so everything is drawn a bit smaller
+        // instead. When it fits, the monitor's own scale is used unchanged.
+        internal static float FitScale(float scale, Rectangle workArea)
+        {
+            // Title bar and borders, generously; they follow the monitor's real scale.
+            float frameW = 8 * scale, frameH = 32 * scale;
+            float fit = Math.Min((workArea.Width - frameW) / 780f, (workArea.Height - frameH) / 666f);
+            return Math.Max(0.5f, Math.Min(scale, fit));
+        }
 
         // Font sized in pixels for this monitor. Point sizes would follow the main screen instead.
         Font F(string family, float points) { return new Font(family, points * 96f / 72f * sc, GraphicsUnit.Pixel); }

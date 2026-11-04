@@ -27,7 +27,7 @@ To work, QuickCut uses some information on your own computer. None of it leaves 
 ## When something is sent
 
 QuickCut only opens your web browser when you ask it to, for example a website button you set up
-yourself, or **Report a bug** / **Request a feature** in Settings.
+yourself, or **Report a bug** / **Suggest a feature** in Settings.
 
 The report links open a page on GitHub with the QuickCut version and your Windows version filled
 in, so a problem is easier to fix. Nothing is sent until you choose to submit that page yourself.
