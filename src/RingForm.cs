@@ -169,12 +169,16 @@ namespace QuickCut
             int y = Math.Max(wa.Top, Math.Min(m.Y - size / 2, wa.Bottom - height));
             Location = new Point(x, y);
             pal = Palette.Get(cfg); // follows Windows light/dark and accent changes
+            // Set before the hit test: while holding, HitTest only looks at the direction. Near a
+            // screen edge the ring is pushed away from the cursor, which can then sit outside the
+            // ring. Measured without the direction, openHover would be "none", the first hold tick
+            // would see a button and count that as a move, and a quick tap would run that button.
+            holdSource = hold;
+            holding = hold != HoldNone;
             hover = HitTest(new Point(m.X - x, m.Y - y));
             openHover = hover;
             volHover = RingRenderer.VolNone;
             medHover = RingRenderer.MedNone;
-            holdSource = hold;
-            holding = hold != HoldNone;
             moved = false;
             alpha = 60;
             warmTimer.Stop();
