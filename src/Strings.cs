@@ -118,8 +118,8 @@ namespace QuickCut
 
         // Import / export (General tab)
         public static string ImportExport = "Import / export…";
-        public static string ExportMenu = "Export buttons and look…";
-        public static string ImportMenu = "Import buttons and look…";
+        public static string ExportMenu = "Export settings…";
+        public static string ImportMenu = "Import settings…";
         public static string TransferFilter = "QuickCut ring (*.quickcut)|*.quickcut|All files|*.*";
         public static string ExportFileName = "QuickCut buttons";
         public static string Exported = "✓ Exported to {0}";
