@@ -18,8 +18,11 @@ namespace QuickCut
         Palette pal;
         float dpi; // scale of the monitor the ring was last shown on
         RingRenderer rr;
-        int size;
-        readonly System.Windows.Forms.Timer fadeTimer, holdTimer;
+        int size, height; // height includes the volume panel when it's shown
+        readonly System.Windows.Forms.Timer fadeTimer, holdTimer, repeatTimer;
+        int volHover = RingRenderer.VolNone;
+        int repeatDir;      // -1 / +1 while - or + is held down
+        bool volPressed;    // the current mouse press started on the volume panel
         int holdSource;
         bool holding, moved;
         int openHover;
@@ -58,6 +61,9 @@ namespace QuickCut
                 SetHover(HitTest(new Point(c.X - Left, c.Y - Top)));
                 if (holdSource > 0 && (Native.GetAsyncKeyState(holdSource) & 0x8000) == 0) EndHold();
             };
+            // Holding - or + keeps stepping: a pause first, then a steady pace.
+            repeatTimer = new System.Windows.Forms.Timer();
+            repeatTimer.Tick += delegate { repeatTimer.Interval = 140; StepVolume(repeatDir); };
             IntPtr h = Handle; // create the window now so the first show is instant
         }
 
@@ -73,7 +79,7 @@ namespace QuickCut
 
         public void SetConfig(Config c)
         {
-            bool resized = c.SizeFactor != cfg.SizeFactor;
+            bool resized = c.SizeFactor != cfg.SizeFactor || c.VolumeBar != cfg.VolumeBar;
             cfg = c;
             Art.ClearIconCache();
             if (resized) { HideRing(); RebuildRenderer(); }
@@ -83,10 +89,11 @@ namespace QuickCut
         void RebuildRenderer()
         {
             if (rr != null) rr.Dispose();
-            rr = new RingRenderer(dpi * cfg.SizeFactor, cfg.SizeFactor);
+            rr = new RingRenderer(dpi * cfg.SizeFactor, cfg.SizeFactor, cfg.VolumeBar);
             size = rr.Size;
+            height = rr.Height;
             if (frame != null) { frame.Dispose(); frame = null; }
-            Size = new Size(size, size);
+            Size = new Size(size, height);
         }
 
         public void ShowRing() { ShowRing(HoldNone); }
@@ -101,11 +108,12 @@ namespace QuickCut
             if (d != dpi) { dpi = d; RebuildRenderer(); }
             Rectangle wa = Screen.FromPoint(m).WorkingArea;
             int x = Math.Max(wa.Left, Math.Min(m.X - size / 2, wa.Right - size));
-            int y = Math.Max(wa.Top, Math.Min(m.Y - size / 2, wa.Bottom - size));
+            int y = Math.Max(wa.Top, Math.Min(m.Y - size / 2, wa.Bottom - height));
             Location = new Point(x, y);
             pal = Palette.Get(cfg); // follows Windows light/dark and accent changes
             hover = HitTest(new Point(m.X - x, m.Y - y));
             openHover = hover;
+            volHover = RingRenderer.VolNone;
             holdSource = hold;
             holding = hold != HoldNone;
             moved = false;
@@ -145,7 +153,9 @@ namespace QuickCut
         {
             fadeTimer.Stop();
             holdTimer.Stop();
+            repeatTimer.Stop();
             holding = false;
+            volPressed = false;
             if (Visible) Hide();
             hover = HitNone;
         }
@@ -162,28 +172,65 @@ namespace QuickCut
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
-            SetHover(HitTest(e.Location));
+            // The volume panel only reacts in click mode; while holding, only the ring's direction counts.
+            int v = holding ? RingRenderer.VolNone : rr.HitVolume(e.Location, cfg.VolumeStep);
+            bool volChanged = v != volHover;
+            volHover = v;
+            if (!SetHover(HitTest(e.Location)) && volChanged && Visible) Render();
+            UpdateCursor();
             base.OnMouseMove(e);
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
-            if (!holding) SetHover(HitNone);
+            if (!holding)
+            {
+                bool volChanged = volHover != RingRenderer.VolNone;
+                volHover = RingRenderer.VolNone;
+                if (!SetHover(HitNone) && volChanged && Visible) Render();
+            }
             base.OnMouseLeave(e);
         }
 
-        void SetHover(int h)
+        // True when it changed (and redrew).
+        bool SetHover(int h)
         {
-            if (h == hover) return;
+            if (h == hover) return false;
             hover = h;
             if (h != openHover) moved = true;
-            Cursor = h == HitNone ? Cursors.Default : Cursors.Hand;
+            UpdateCursor();
             if (Visible) Render();
+            return true;
+        }
+
+        void UpdateCursor()
+        {
+            bool hand = hover != HitNone || volHover == RingRenderer.VolDown || volHover == RingRenderer.VolUp || volHover >= 0;
+            Cursor = hand ? Cursors.Hand : Cursors.Default;
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (holding || e.Button != MouseButtons.Left) return;
+            int v = rr.HitVolume(e.Location, cfg.VolumeStep);
+            if (v == RingRenderer.VolNone) return;
+            volPressed = true;
+            if (v == RingRenderer.VolDown || v == RingRenderer.VolUp)
+            {
+                repeatDir = v == RingRenderer.VolUp ? 1 : -1;
+                StepVolume(repeatDir);
+                repeatTimer.Interval = 450;
+                repeatTimer.Start();
+            }
+            else if (v >= 0) ClickBlock(v);
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
+            repeatTimer.Stop();
+            if (volPressed) { volPressed = false; return; } // the panel acts on press; the ring stays open
             if (holding) { holding = false; holdTimer.Stop(); }
             if (e.Button != MouseButtons.Left) { HideRing(); return; }
             int h = HitTest(e.Location);
@@ -195,7 +242,33 @@ namespace QuickCut
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            Run(new RingItem(ActionType.Media, "", e.Delta > 0 ? "volup" : "voldown"));
+            StepVolume(e.Delta > 0 ? 1 : -1);
+        }
+
+        // ---------- volume ----------
+
+        // One step of the chosen size, snapping to the step grid. Without Core Audio it falls back to
+        // the volume keys (2% each).
+        void StepVolume(int dir)
+        {
+            float level; bool muted;
+            if (Volume.TryGet(out level, out muted))
+                Volume.Set(Volume.NextStep((int)Math.Round(level * 100), cfg.VolumeStep, dir) / 100f);
+            else
+                for (int i = 0; i < cfg.VolumeStep / 2; i++)
+                    Run(new RingItem(ActionType.Media, "", dir > 0 ? "volup" : "voldown"));
+            if (Visible) Render();
+        }
+
+        // Sets the level to that block; clicking the block the level already sits on mutes.
+        void ClickBlock(int index)
+        {
+            float level; bool muted;
+            if (!Volume.TryGet(out level, out muted)) return;
+            int target = (index + 1) * cfg.VolumeStep;
+            if (!muted && (int)Math.Round(level * 100) == target) Volume.SetMute(true);
+            else Volume.Set(target / 100f);
+            Render();
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -242,11 +315,17 @@ namespace QuickCut
 
         void Render()
         {
-            if (frame == null) frame = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+            if (frame == null) frame = new Bitmap(size, height, PixelFormat.Format32bppArgb);
             using (Graphics g = Graphics.FromImage(frame))
             {
                 g.Clear(Color.Transparent);
                 rr.Draw(g, cfg, pal, hover, HitNone, true);
+                if (rr.VolumeBar)
+                {
+                    float level; bool muted;
+                    bool ok = Volume.TryGet(out level, out muted);
+                    rr.DrawVolume(g, cfg, pal, volHover, ok, level, muted);
+                }
             }
             Apply();
         }
@@ -260,7 +339,7 @@ namespace QuickCut
             IntPtr old = Native.SelectObject(memDc, hBmp);
             try
             {
-                Native.SIZE sz = new Native.SIZE(size, size);
+                Native.SIZE sz = new Native.SIZE(size, height);
                 Native.POINT src = new Native.POINT(0, 0), dst = new Native.POINT(Left, Top);
                 Native.BLENDFUNCTION bf = new Native.BLENDFUNCTION { Op = 0, Flags = 0, Alpha = alpha, Format = 1 };
                 Native.UpdateLayeredWindow(Handle, screenDc, ref dst, ref sz, memDc, ref src, 0, ref bf, 2);
@@ -277,13 +356,17 @@ namespace QuickCut
         // Renders the ring over a grey background into a PNG (used to check the design).
         public static void SavePreview(Config cfg, string path, int hoverIndex)
         {
-            using (RingRenderer r = new RingRenderer(1f))
-            using (Bitmap outp = new Bitmap(r.Size, r.Size))
+            using (RingRenderer r = new RingRenderer(1f, 1f, cfg.VolumeBar))
+            using (Bitmap outp = new Bitmap(r.Size, r.Height))
             {
                 using (Graphics g = Graphics.FromImage(outp))
                 {
                     g.Clear(Color.FromArgb(120, 130, 150));
-                    r.Draw(g, cfg, Palette.Get(cfg), hoverIndex, HitNone, true);
+                    Palette pal = Palette.Get(cfg);
+                    r.Draw(g, cfg, pal, hoverIndex, HitNone, true);
+                    float level; bool muted;
+                    bool ok = Volume.TryGet(out level, out muted);
+                    r.DrawVolume(g, cfg, pal, RingRenderer.VolNone, ok, level, muted);
                 }
                 outp.Save(path, ImageFormat.Png);
             }
@@ -295,6 +378,7 @@ namespace QuickCut
             {
                 fadeTimer.Dispose();
                 holdTimer.Dispose();
+                repeatTimer.Dispose();
                 rr.Dispose();
                 if (frame != null) frame.Dispose();
             }

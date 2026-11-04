@@ -42,7 +42,8 @@ namespace QuickCut
         Label lblSize, lblHoverStyle, lblHoverHint;
 
         // General tab
-        ToggleSwitch tgMouse, tgFullscreen, tgAutostart, tgNotice;
+        ToggleSwitch tgMouse, tgFullscreen, tgAutostart, tgNotice, tgVolume;
+        Segmented stepSeg;
         HotkeyBox hotkeyBox;
         Label lblHotkeyError;
 
@@ -324,15 +325,24 @@ namespace QuickCut
             hotkeyBox.ComboChanged += delegate { TryHotkey(hotkeyBox.Combo); };
             FlatButton def = Add(p, new FlatButton(Str.Default, FlatButton.Kind.Normal), 248, 132, 104, 34);
             def.Click += delegate { TryHotkey(Config.DefaultHotkey); };
-            lblHotkeyError = AddLabel(p, "", 0, 170, 352, 34, "danger");
-            AddLabel(p, Str.Hint, 0, 204, 352, 56, "muted");
+            lblHotkeyError = AddLabel(p, "", 0, 170, 352, 30, "danger");
+            AddLabel(p, Str.Hint, 0, 200, 352, 38, "muted");
 
-            AddLabel(p, Str.OtherSection, 0, 270, 352, 24, "heading");
-            tgAutostart = Row(p, Str.StartWithWindows, 304, Autostart.IsEnabled());
+            AddLabel(p, Str.VolumeSection, 0, 246, 352, 24, "heading");
+            tgVolume = Row(p, Str.ShowVolume, 278, work.VolumeBar);
+            tgVolume.CheckedChanged += delegate { if (!loading) { work.VolumeBar = tgVolume.Checked; Changed(); } };
+            // The step also applies with the blocks hidden: scrolling over the ring uses it.
+            AddLabel(p, Str.VolumeStep, 0, 319, 220, 22, null);
+            stepSeg = Add(p, new Segmented(Str.VolumeStepOptions), 232, 314, 120, 32);
+            stepSeg.SelectedIndex = work.VolumeStep == 10 ? 1 : 0;
+            stepSeg.SelectedIndexChanged += delegate { if (!loading) { work.VolumeStep = stepSeg.SelectedIndex == 1 ? 10 : 5; Changed(); } };
+
+            AddLabel(p, Str.OtherSection, 0, 356, 352, 24, "heading");
+            tgAutostart = Row(p, Str.StartWithWindows, 390, Autostart.IsEnabled());
             tgAutostart.CheckedChanged += delegate { if (!loading) Autostart.Set(tgAutostart.Checked); };
-            tgNotice = Row(p, Str.LaunchNotice, 340, work.LaunchNotice);
+            tgNotice = Row(p, Str.LaunchNotice, 426, work.LaunchNotice);
             tgNotice.CheckedChanged += delegate { if (!loading) { work.LaunchNotice = tgNotice.Checked; Changed(); } };
-            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 380, 220, 24);
+            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 464, 220, 24);
             restore.Click += delegate { RestoreDefaults(); };
             loading = false;
         }

@@ -496,12 +496,15 @@ namespace QuickCut
             get
             {
                 float factor = Cfg != null ? Cfg.SizeFactor : 1f;
-                float scale = Math.Min(Width, Height) / (320f * 1.25f) * factor;
+                bool vol = Cfg != null && Cfg.VolumeBar;
+                // Sized so the largest ring, with its volume panel, still fits.
+                float tall = 320f + (vol ? RingRenderer.PanelExtra : 0);
+                float scale = Math.Min(Width / (320f * 1.25f), Height / (tall * 1.25f)) * factor;
                 int want = (int)Math.Round(320 * scale);
-                if (rr == null || rrSize != want)
+                if (rr == null || rrSize != want || rr.VolumeBar != vol)
                 {
                     if (rr != null) rr.Dispose();
-                    rr = new RingRenderer(scale, factor);
+                    rr = new RingRenderer(scale, factor, vol);
                     rrSize = want;
                 }
                 return rr;
@@ -510,7 +513,7 @@ namespace QuickCut
 
         protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); Invalidate(); }
 
-        PointF Local(Point p) { RingRenderer r = Renderer; return new PointF(p.X - (Width - r.Size) / 2f, p.Y - (Height - r.Size) / 2f); }
+        PointF Local(Point p) { RingRenderer r = Renderer; return new PointF(p.X - (Width - r.Size) / 2f, p.Y - (Height - r.Height) / 2f); }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
@@ -567,8 +570,14 @@ namespace QuickCut
             Graphics g = Prepare(e);
             if (Cfg == null) return;
             RingRenderer r = Renderer;
-            g.TranslateTransform((Width - r.Size) / 2f, (Height - r.Size) / 2f);
+            g.TranslateTransform((Width - r.Size) / 2f, (Height - r.Height) / 2f);
             r.Draw(g, Cfg, Pal, hover, selected, false);
+            if (r.VolumeBar)
+            {
+                float level; bool muted;
+                bool ok = Volume.TryGet(out level, out muted);
+                r.DrawVolume(g, Cfg, Pal, RingRenderer.VolNone, ok, level, muted);
+            }
         }
 
         protected override void Dispose(bool disposing)

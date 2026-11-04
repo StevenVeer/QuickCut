@@ -7,6 +7,8 @@ launch programs, open websites, control media (Spotify, YouTube, ...) or send ke
   Not in fullscreen apps (games), unless you turn that off.
 - **Hold**, move towards a button and release to pick it (with double right-click: hold the second click)
 - A quick tap keeps the ring open: click or 1-9 = button, Space = center, scroll = volume, Esc = close
+- Volume blocks under the ring: click − / + (hold to repeat) or a block; click the lit block to mute.
+  Steps of 5% or 10%, and the blocks can be hidden (Settings > General > Volume)
 - Center = default button (Play/Pause), surrounded by up to 12 buttons of your own
 - Settings: click the tray icon, or start the exe again
 - Settings are stored in `%APPDATA%\QuickCut\config.ini`

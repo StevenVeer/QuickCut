@@ -62,6 +62,8 @@ namespace QuickCut
         public string Accent = "";          // hover color: "" = orange, "windows" = Windows accent, or #RRGGBB
         public string ButtonColor = "";     // color of all buttons, "" = theme default
         public string RingSize = "medium";  // small, medium, large
+        public bool VolumeBar = true;       // volume blocks under the ring
+        public int VolumeStep = 5;          // percent per step (5 or 10): blocks, - / + and scrolling
 
         public float SizeFactor { get { return RingSize == "small" ? 0.8f : RingSize == "large" ? 1.25f : 1f; } }
         public RingItem Center = new RingItem(ActionType.Media, Str.MediaShort[0], "playpause");
@@ -84,12 +86,10 @@ namespace QuickCut
             if (spotify != null) app(spotify);
             else if (Registry.ClassesRoot.OpenSubKey("spotify") != null) c.Items.Add(new RingItem(ActionType.Url, "Spotify", "spotify:"));
             c.Items.Add(Media("next"));
-            c.Items.Add(Media("volup"));
             app(AppCatalog.DefaultBrowser());
             app(AppCatalog.Explorer());
             app(AppCatalog.Find(apps, "Discord"));
             app(AppCatalog.Find(apps, "Steam"));
-            c.Items.Add(Media("voldown"));
             c.Items.Add(Media("prev"));
             return c;
         }
@@ -126,6 +126,8 @@ namespace QuickCut
                     else if (key == "accent") c.Accent = val;
                     else if (key == "buttoncolor") c.ButtonColor = val;
                     else if (key == "size") c.RingSize = val;
+                    else if (key == "volumebar") c.VolumeBar = val != "0";
+                    else if (key == "volumestep") c.VolumeStep = val == "10" ? 10 : 5;
                     else if (key == "center") { RingItem it = RingItem.Parse(val); if (it != null) c.Center = it; }
                     else if (key == "item" && c.Items.Count < MaxItems) { RingItem it = RingItem.Parse(val); if (it != null) c.Items.Add(it); }
                 }
@@ -149,6 +151,8 @@ namespace QuickCut
             sb.AppendLine("accent=" + Accent);
             sb.AppendLine("buttoncolor=" + ButtonColor);
             sb.AppendLine("size=" + RingSize);
+            sb.AppendLine("volumebar=" + (VolumeBar ? "1" : "0"));
+            sb.AppendLine("volumestep=" + VolumeStep);
             sb.AppendLine("center=" + Center.Serialize());
             foreach (RingItem it in Items) sb.AppendLine("item=" + it.Serialize());
             File.WriteAllText(FilePath, sb.ToString(), new UTF8Encoding(false));
@@ -166,6 +170,8 @@ namespace QuickCut
             c.Accent = Accent;
             c.ButtonColor = ButtonColor;
             c.RingSize = RingSize;
+            c.VolumeBar = VolumeBar;
+            c.VolumeStep = VolumeStep;
             c.Center = Center.Clone();
             foreach (RingItem it in Items) c.Items.Add(it.Clone());
             return c;

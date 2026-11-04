@@ -10,18 +10,26 @@ namespace QuickCut
     {
         public const int HitNone = -1, HitCenter = -2;
 
+        // Volume panel hits (HitVolume); a value >= 0 is the index of a block.
+        public const int VolNone = -1, VolDown = -2, VolUp = -3, VolPanel = -4;
+        public const float PanelExtra = 56; // unscaled height the volume panel adds below the ring
+
         public readonly float Sc;
-        public readonly int Size;
+        public readonly int Size;   // width, and the height of the ring part
+        public readonly int Height; // Size plus the volume panel, when shown
+        public readonly bool VolumeBar;
         public readonly float Cx, Cy, ROuter, RInner, RCenter;
         readonly Font labelFont;
 
-        public RingRenderer(float scale) : this(scale, 1f) { }
+        public RingRenderer(float scale) : this(scale, 1f, false) { }
 
         // sizeFactor: the chosen ring size (Small = 0.8), already included in scale.
-        public RingRenderer(float scale, float sizeFactor)
+        public RingRenderer(float scale, float sizeFactor, bool volumeBar)
         {
             Sc = scale;
             Size = (int)Math.Round(320 * scale);
+            VolumeBar = volumeBar;
+            Height = volumeBar ? (int)Math.Round((320 + PanelExtra) * scale) : Size;
             Cx = Cy = Size / 2f;
             ROuter = 148 * scale;
             bool small = sizeFactor < 1f;
@@ -49,7 +57,96 @@ namespace QuickCut
         public bool Contains(PointF p)
         {
             float dx = p.X - Cx, dy = p.Y - Cy;
-            return dx * dx + dy * dy <= ROuter * ROuter;
+            return dx * dx + dy * dy <= ROuter * ROuter || (VolumeBar && PanelRect.Contains(p));
+        }
+
+        // ---------- volume panel ----------
+
+        RectangleF PanelRect { get { return new RectangleF(Cx - 134 * Sc, Size + 2 * Sc, 268 * Sc, 50 * Sc); } }
+        PointF MinusAt { get { return new PointF(Cx - 110 * Sc, PanelRect.Top + 25 * Sc); } }
+        PointF PlusAt { get { return new PointF(Cx + 110 * Sc, PanelRect.Top + 25 * Sc); } }
+
+        // One block per step: 20 blocks for 5%, 10 for 10%.
+        void BlockLayout(int step, out int count, out float x0, out float bw, out float gap)
+        {
+            count = 100 / step;
+            gap = (count > 10 ? 2.5f : 4f) * Sc;
+            float area = 172 * Sc;
+            x0 = Cx - area / 2;
+            bw = (area - gap * (count - 1)) / count;
+        }
+
+        public int HitVolume(PointF p, int step)
+        {
+            if (!VolumeBar) return VolNone;
+            RectangleF pr = PanelRect;
+            if (!pr.Contains(p)) return VolNone;
+            float r = 17 * Sc;
+            if (Dist(p, MinusAt) <= r) return VolDown;
+            if (Dist(p, PlusAt) <= r) return VolUp;
+            int count; float x0, bw, gap;
+            BlockLayout(step, out count, out x0, out bw, out gap);
+            if (p.Y >= pr.Top + 20 * Sc && p.X >= x0 - gap / 2 && p.X < x0 + count * (bw + gap) - gap / 2)
+                return Math.Max(0, Math.Min(count - 1, (int)((p.X - x0 + gap / 2) / (bw + gap))));
+            return VolPanel;
+        }
+
+        static float Dist(PointF a, PointF b) { float dx = a.X - b.X, dy = a.Y - b.Y; return (float)Math.Sqrt(dx * dx + dy * dy); }
+
+        // available: false when Windows has no output device. level: 0..1.
+        public void DrawVolume(Graphics g, Config cfg, Palette pal, int hot, bool available, float level, bool muted)
+        {
+            if (!VolumeBar) return;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            RectangleF pr = PanelRect;
+            using (GraphicsPath p = ThemedControl.Round(pr, 12 * Sc))
+            {
+                using (SolidBrush b = new SolidBrush(Color.FromArgb(245, pal.Ring))) g.FillPath(b, p);
+                using (Pen rim = new Pen(pal.Dark ? Color.FromArgb(45, 255, 255, 255) : Color.FromArgb(30, 0, 0, 0), Sc)) g.DrawPath(rim, p);
+            }
+
+            // - and + buttons, in the button color, with the hover color when hot
+            Color? custom = Theme.ParseHex(cfg.ButtonColor);
+            Color btn = custom.HasValue ? custom.Value : pal.Button;
+            for (int i = 0; i < 2; i++)
+            {
+                PointF c = i == 0 ? MinusAt : PlusAt;
+                bool isHot = hot == (i == 0 ? VolDown : VolUp);
+                Color fill = isHot ? pal.Accent : btn;
+                float r = 15 * Sc;
+                using (SolidBrush b = new SolidBrush(fill)) g.FillEllipse(b, c.X - r, c.Y - r, 2 * r, 2 * r);
+                using (Pen rim = new Pen(pal.Dark ? Color.FromArgb(50, 255, 255, 255) : Color.FromArgb(35, 0, 0, 0), Sc))
+                    g.DrawEllipse(rim, c.X - r, c.Y - r, 2 * r, 2 * r);
+                using (Pen pen = new Pen(Theme.TextOn(fill), 1.8f * Sc) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                {
+                    float a = 5.5f * Sc;
+                    g.DrawLine(pen, c.X - a, c.Y, c.X + a, c.Y);
+                    if (i == 1) g.DrawLine(pen, c.X, c.Y - a, c.X, c.Y + a);
+                }
+            }
+
+            // Blocks, growing a little in height; a block can be part lit when the level sits between steps.
+            int count; float x0, bw, gap;
+            BlockLayout(cfg.VolumeStep, out count, out x0, out bw, out gap);
+            Color track = Theme.Mix(pal.Ring, pal.Text, pal.Dark ? 0.16f : 0.14f);
+            float v = available && !muted ? level : 0, bottom = pr.Top + 42 * Sc, rad = (count > 10 ? 1.5f : 2.5f) * Sc;
+            for (int i = 0; i < count; i++)
+            {
+                float h = (8 + i * 12f / (count - 1)) * Sc, x = x0 + i * (bw + gap);
+                RectangleF br = new RectangleF(x, bottom - h, bw, h);
+                using (GraphicsPath p = ThemedControl.Round(br, rad))
+                using (SolidBrush b = new SolidBrush(track)) g.FillPath(b, p);
+                float lit = Math.Max(0, Math.Min(1, v * count - i));
+                if (lit > 0.02f)
+                    using (GraphicsPath p = ThemedControl.Round(new RectangleF(x, br.Y, bw * lit, h), Math.Min(rad, bw * lit / 2)))
+                    using (SolidBrush b = new SolidBrush(pal.Accent)) g.FillPath(b, p);
+            }
+
+            string text = !available ? Str.VolumeUnavailable : muted ? Str.VolumeMuted
+                : string.Format(Str.VolumeLevel, (int)Math.Round(level * 100));
+            using (StringFormat sf = new StringFormat(StringFormatFlags.NoWrap) { Alignment = StringAlignment.Center })
+            using (SolidBrush tb = new SolidBrush(muted || !available ? pal.Muted : pal.Text))
+                g.DrawString(text, labelFont, tb, new RectangleF(x0, pr.Top + 4 * Sc, 172 * Sc, labelFont.GetHeight(g) + 1), sf);
         }
 
         public static Color ButtonColor(Config cfg, RingItem it, Palette pal)
