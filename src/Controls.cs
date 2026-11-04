@@ -496,15 +496,16 @@ namespace QuickCut
             get
             {
                 float factor = Cfg != null ? Cfg.SizeFactor : 1f;
-                bool vol = Cfg != null && Cfg.VolumeBar;
-                // Sized so the largest ring, with its volume panel, still fits.
-                float tall = 320f + (vol ? RingRenderer.PanelExtra : 0);
-                float scale = Math.Min(Width / (320f * 1.25f), Height / (tall * 1.25f)) * factor;
+                bool vol = Cfg != null && Cfg.VolumeBar, med = Cfg != null && Cfg.MediaBar;
+                // Sized so the largest ring, with its panels, still fits.
+                float tall = 320f + RingRenderer.PanelsExtra(vol, med);
+                // Width keeps room for Large, so the sizes still look different; height only has to fit this one.
+                float scale = Math.Min(Width / (320f * 1.25f) * factor, Height / (tall * 1.03f));
                 int want = (int)Math.Round(320 * scale);
-                if (rr == null || rrSize != want || rr.VolumeBar != vol)
+                if (rr == null || rrSize != want || rr.VolumeBar != vol || rr.MediaBar != med)
                 {
                     if (rr != null) rr.Dispose();
-                    rr = new RingRenderer(scale, factor, vol);
+                    rr = new RingRenderer(scale, factor, vol, med, 0.9f * S); // panel text near real size, so it's readable
                     rrSize = want;
                 }
                 return rr;
@@ -578,11 +579,31 @@ namespace QuickCut
                 bool ok = Volume.TryGet(out level, out muted);
                 r.DrawVolume(g, Cfg, Pal, RingRenderer.VolNone, ok, level, muted);
             }
+            // Always drawn here (a placeholder when nothing plays), so you can see where it goes.
+            r.DrawMedia(g, Cfg, Pal, RingRenderer.MedNone, Media.Current, true);
+        }
+
+        // Shows the song that's playing, and follows it while the settings are open.
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            Media.Changed += OnMediaChanged;
+            Media.Refresh();
+        }
+
+        void OnMediaChanged()
+        {
+            if (!IsHandleCreated || IsDisposed) return;
+            try { BeginInvoke((Action)Invalidate); } catch { }
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && rr != null) rr.Dispose();
+            if (disposing)
+            {
+                Media.Changed -= OnMediaChanged;
+                if (rr != null) rr.Dispose();
+            }
             base.Dispose(disposing);
         }
     }

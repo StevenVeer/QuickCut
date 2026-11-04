@@ -20,8 +20,9 @@ namespace QuickCut
         float dpi; // scale of the monitor the ring was last shown on
         RingRenderer rr;
         int size, height; // height includes the volume panel when it's shown
-        readonly System.Windows.Forms.Timer fadeTimer, holdTimer, repeatTimer, warmTimer;
+        readonly System.Windows.Forms.Timer fadeTimer, holdTimer, repeatTimer, warmTimer, mediaTimer, scrollTimer;
         int volHover = RingRenderer.VolNone;
+        int medHover = RingRenderer.MedNone;
         int repeatDir;      // -1 / +1 while - or + is held down
         bool volPressed;    // the current mouse press started on the volume panel
         int holdSource;
@@ -74,6 +75,19 @@ namespace QuickCut
             warmTimer = new System.Windows.Forms.Timer();
             warmTimer.Tick += delegate { warmTimer.Stop(); WarmUp(); };
             ScheduleWarmUp(3500);
+            // While the ring is open, what's playing is re-read every second (the read runs off the UI thread).
+            mediaTimer = new System.Windows.Forms.Timer();
+            mediaTimer.Interval = 1000;
+            mediaTimer.Tick += delegate { Media.Refresh(); };
+            Media.Changed += OnMediaChanged;
+            // Runs only while a too-long title is scrolling; stops itself otherwise.
+            scrollTimer = new System.Windows.Forms.Timer();
+            scrollTimer.Interval = 15; // Windows rounds this to its 15.6 ms tick: ~64 even frames per second
+            scrollTimer.Tick += delegate
+            {
+                if (Visible && rr.TitleScrolls) { rr.ScrollTick(); Render(); }
+                else scrollTimer.Stop();
+            };
             IntPtr h = Handle; // create the window now so the first show is instant
         }
 
@@ -115,7 +129,7 @@ namespace QuickCut
 
         public void SetConfig(Config c)
         {
-            bool resized = c.SizeFactor != cfg.SizeFactor || c.VolumeBar != cfg.VolumeBar;
+            bool resized = c.SizeFactor != cfg.SizeFactor || c.VolumeBar != cfg.VolumeBar || c.MediaBar != cfg.MediaBar;
             cfg = c;
             Art.ClearIconCache();
             DropBaseLayer();
@@ -132,7 +146,7 @@ namespace QuickCut
         void RebuildRenderer()
         {
             if (rr != null) rr.Dispose();
-            rr = new RingRenderer(dpi * cfg.SizeFactor, cfg.SizeFactor, cfg.VolumeBar);
+            rr = new RingRenderer(dpi * cfg.SizeFactor, cfg.SizeFactor, cfg.VolumeBar, cfg.MediaBar);
             size = rr.Size;
             height = rr.Height;
             if (frame != null) { frame.Dispose(); frame = null; }
@@ -158,6 +172,7 @@ namespace QuickCut
             hover = HitTest(new Point(m.X - x, m.Y - y));
             openHover = hover;
             volHover = RingRenderer.VolNone;
+            medHover = RingRenderer.MedNone;
             holdSource = hold;
             holding = hold != HoldNone;
             moved = false;
@@ -169,6 +184,14 @@ namespace QuickCut
             TakeFocus();
             fadeTimer.Start();
             if (holding) holdTimer.Start();
+            if (cfg.MediaBar) { Media.Refresh(); mediaTimer.Start(); }
+        }
+
+        // Called from Media's background thread.
+        void OnMediaChanged()
+        {
+            if (!IsHandleCreated || IsDisposed) return;
+            try { BeginInvoke((Action)delegate { if (Visible && cfg.MediaBar) Render(); }); } catch { }
         }
 
         // Windows only lets the active app hand out focus, so borrow its input queue for a moment.
@@ -200,6 +223,8 @@ namespace QuickCut
             fadeTimer.Stop();
             holdTimer.Stop();
             repeatTimer.Stop();
+            mediaTimer.Stop();
+            scrollTimer.Stop();
             holding = false;
             volPressed = false;
             area = null;
@@ -227,6 +252,14 @@ namespace QuickCut
             int v = holding ? RingRenderer.VolNone : rr.HitVolume(e.Location, cfg.VolumeStep);
             bool volChanged = v != volHover;
             volHover = v;
+            int m = holding ? RingRenderer.MedNone : rr.HitMedia(e.Location);
+            if (m != medHover)
+            {
+                // Coming onto the panel: a long title starts scrolling from its beginning.
+                if (medHover == RingRenderer.MedNone) rr.ResetScroll();
+                medHover = m;
+                volChanged = true;
+            }
             if (!SetHover(HitTest(e.Location)) && volChanged && Visible) Render();
             UpdateCursor();
             base.OnMouseMove(e);
@@ -236,8 +269,9 @@ namespace QuickCut
         {
             if (!holding)
             {
-                bool volChanged = volHover != RingRenderer.VolNone;
+                bool volChanged = volHover != RingRenderer.VolNone || medHover != RingRenderer.MedNone;
                 volHover = RingRenderer.VolNone;
+                medHover = RingRenderer.MedNone;
                 if (!SetHover(HitNone) && volChanged && Visible) Render();
             }
             base.OnMouseLeave(e);
@@ -256,7 +290,8 @@ namespace QuickCut
 
         void UpdateCursor()
         {
-            bool hand = hover != HitNone || volHover == RingRenderer.VolDown || volHover == RingRenderer.VolUp || volHover >= 0;
+            bool hand = hover != HitNone || volHover == RingRenderer.VolDown || volHover == RingRenderer.VolUp || volHover >= 0
+                || medHover == RingRenderer.MedPrev || medHover == RingRenderer.MedPlay || medHover == RingRenderer.MedNext;
             Cursor = hand ? Cursors.Hand : Cursors.Default;
         }
 
@@ -264,6 +299,15 @@ namespace QuickCut
         {
             base.OnMouseDown(e);
             if (holding || e.Button != MouseButtons.Left) return;
+            int med = rr.HitMedia(e.Location);
+            if (med != RingRenderer.MedNone)
+            {
+                volPressed = true; // like the volume panel: acts on press, the ring stays open
+                if (med == RingRenderer.MedPrev) Media.Command(Media.Prev);
+                else if (med == RingRenderer.MedPlay) Media.Command(Media.PlayPause);
+                else if (med == RingRenderer.MedNext) Media.Command(Media.Next);
+                return;
+            }
             int v = rr.HitVolume(e.Location, cfg.VolumeStep);
             if (v == RingRenderer.VolNone) return;
             volPressed = true;
@@ -367,10 +411,12 @@ namespace QuickCut
         void Render()
         {
             Compose(hover);
+            if (rr.TitleScrolls && Visible && !scrollTimer.Enabled) scrollTimer.Start();
             Apply();
         }
 
-        // Draws the ring with `h` hovered into frame: a copy of the base layer plus that one button.
+        // Draws the ring with `h` hovered into frame: a copy of the base layer plus that one button,
+        // then the volume and now-playing panels.
         void Compose(int h)
         {
             string key = pal.Dark + ":" + pal.Accent.ToArgb();
@@ -389,12 +435,18 @@ namespace QuickCut
                 g.DrawImageUnscaled(baseLayer, 0, 0);
                 g.CompositingMode = CompositingMode.SourceOver;
                 rr.DrawHover(g, cfg, pal, h, true);
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality; // as rr.Draw sets it
                 if (rr.VolumeBar)
                 {
                     float level; bool muted;
                     bool ok = Volume.TryGet(out level, out muted);
                     rr.DrawVolume(g, cfg, pal, volHover, ok, level, muted);
                 }
+                MediaInfo mi = cfg.MediaBar ? Media.Current : null;
+                rr.MediaShown = mi != null;
+                if (mi == null) medHover = RingRenderer.MedNone;
+                rr.Animate = medHover != RingRenderer.MedNone; // a long title scrolls while the mouse is on the panel
+                rr.DrawMedia(g, cfg, pal, medHover, mi, false);
             }
         }
 
@@ -424,7 +476,7 @@ namespace QuickCut
         // Renders the ring over a grey background into a PNG (used to check the design).
         public static void SavePreview(Config cfg, string path, int hoverIndex)
         {
-            using (RingRenderer r = new RingRenderer(1f, 1f, cfg.VolumeBar))
+            using (RingRenderer r = new RingRenderer(1f, 1f, cfg.VolumeBar, cfg.MediaBar))
             using (Bitmap outp = new Bitmap(r.Size, r.Height))
             {
                 using (Graphics g = Graphics.FromImage(outp))
@@ -434,7 +486,14 @@ namespace QuickCut
                     r.Draw(g, cfg, pal, hoverIndex, HitNone, true);
                     float level; bool muted;
                     bool ok = Volume.TryGet(out level, out muted);
-                    r.DrawVolume(g, cfg, pal, RingRenderer.VolNone, ok, level, muted);
+                    if (cfg.VolumeBar) r.DrawVolume(g, cfg, pal, RingRenderer.VolNone, ok, level, muted);
+                    // Read on a background (MTA) thread, like the ring does: some WinRT calls stall on the UI thread.
+                    MediaInfo mi = null;
+                    Thread t = new Thread(delegate() { try { mi = MediaWin.Fetch(null); } catch { } });
+                    t.SetApartmentState(ApartmentState.MTA);
+                    t.Start();
+                    t.Join(5000);
+                    r.DrawMedia(g, cfg, pal, RingRenderer.MedNone, mi, true);
                 }
                 outp.Save(path, ImageFormat.Png);
             }
@@ -448,6 +507,9 @@ namespace QuickCut
                 holdTimer.Dispose();
                 repeatTimer.Dispose();
                 warmTimer.Dispose();
+                mediaTimer.Dispose();
+                scrollTimer.Dispose();
+                Media.Changed -= OnMediaChanged;
                 rr.Dispose();
                 if (frame != null) frame.Dispose();
                 DropBaseLayer();

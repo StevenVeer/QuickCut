@@ -29,6 +29,7 @@ namespace QuickCut
         public static string VolumeLevel = "Volume {0}%";
         public static string VolumeMuted = "Muted";
         public static string VolumeUnavailable = "No audio device";
+        public static string NothingPlaying = "Nothing playing";
 
         // Default buttons
         public static string DefaultExplorer = "Explorer";
@@ -99,7 +100,8 @@ namespace QuickCut
         public static string KeyboardShortcut = "Keyboard shortcut";
         public static string Default = "Default";
         public static string Hint = "Hold, move and release to pick. Tap to keep it open: number = button, Space = center, scroll = volume, Esc = close.";
-        public static string VolumeSection = "Volume";
+        public static string VolumeSection = "Volume and media";
+        public static string ShowMedia = "Show what's playing";
         public static string ShowVolume = "Show volume under the ring";
         public static string VolumeStep = "Volume step";
         public static string[] VolumeStepOptions = { "5%", "10%" };
