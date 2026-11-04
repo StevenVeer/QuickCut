@@ -20,6 +20,9 @@ To work, QuickCut uses some information on your own computer. None of it leaves 
 - **What's playing** (title, artist and cover art from apps like Spotify or your browser) is
   read from Windows to show under the ring and to control playback.
 - **System volume** is read and changed when you use the volume controls.
+- **Error details**: if something goes wrong, QuickCut writes what happened to
+  `%APPDATA%\QuickCut\crash.log`, so you can attach it to a bug report if you want. It is never
+  sent anywhere.
 
 ## When something is sent
 

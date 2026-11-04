@@ -30,7 +30,46 @@ namespace QuickCut
         public static bool IsWebUrl(string s)
         {
             s = (s ?? "").Trim();
-            return s.IndexOf(':') < 0 || s.StartsWith("http:", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https:", StringComparison.OrdinalIgnoreCase);
+            return !HasScheme(s) || s.StartsWith("http:", StringComparison.OrdinalIgnoreCase) || s.StartsWith("https:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // True when the text starts with a link type like "https:", "spotify:" or "ms-settings:".
+        // "localhost:3000" or "example.com:8080/x" only look like one: that's a host with a port number.
+        // A host is told apart by being localhost or having a dot (a domain or IP address) and being
+        // followed by up to 5 digits, so "tel:112" and reverse-DNS links like "com.epicgames.launcher://"
+        // still count as links.
+        static bool HasScheme(string s)
+        {
+            int c = s.IndexOf(':');
+            if (c <= 0 || s[0] == '[') return false; // no ':', or an IPv6 address like [::1]:8080
+            string head = s.Substring(0, c);
+            if (!char.IsLetter(head[0])) return false;
+            foreach (char ch in head)
+                if (!char.IsLetterOrDigit(ch) && ch != '+' && ch != '-' && ch != '.') return false;
+            bool hostLike = head.Equals("localhost", StringComparison.OrdinalIgnoreCase) || head.IndexOf('.') >= 0;
+            if (!hostLike) return true;
+            int d = c + 1;
+            while (d < s.Length && char.IsDigit(s[d])) d++;
+            bool port = d > c + 1 && d - c - 1 <= 5 && (d == s.Length || s[d] == '/' || s[d] == '?' || s[d] == '#');
+            return !port;
+        }
+
+        // The address a web button opens: "youtube.com" gets https://. A local address (localhost or an
+        // IP number, like a router page or a dev server) gets http://, since those rarely have https.
+        public static string WebAddress(string s)
+        {
+            string url = (s ?? "").Trim();
+            if (url.Length == 0 || HasScheme(url)) return url;
+            string host = url;
+            int end = host.IndexOfAny(new[] { '/', '?', '#' });
+            if (end >= 0) host = host.Substring(0, end);
+            if (host.StartsWith("[")) return "http://" + url; // IPv6
+            int colon = host.IndexOf(':');
+            if (colon >= 0) host = host.Substring(0, colon);
+            System.Net.IPAddress ip;
+            bool local = host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                || (host.Split('.').Length == 4 && System.Net.IPAddress.TryParse(host, out ip));
+            return (local ? "http://" : "https://") + url;
         }
 
         public static void Execute(RingItem it)
@@ -52,9 +91,8 @@ namespace QuickCut
                 }
                 case ActionType.Url:
                 {
-                    string url = (it.Target ?? "").Trim();
+                    string url = WebAddress(it.Target);
                     if (url.Length == 0) throw new InvalidOperationException(Str.NoAddress);
-                    if (url.IndexOf(':') < 0) url = "https://" + url;
                     ProcessStartInfo psi = new ProcessStartInfo(url);
                     psi.UseShellExecute = true;
                     Start(psi);
@@ -111,6 +149,9 @@ namespace QuickCut
         {
             mods = 0; key = Keys.None;
             if (string.IsNullOrWhiteSpace(s)) return false;
+            s = s.Trim();
+            // "Ctrl++" (or a lone "+") means the plus key: the last '+' is the key, not a separator.
+            if (s == "+" || s.EndsWith("++")) { key = Keys.Oemplus; s = s.Substring(0, s.Length - 1); }
             foreach (string raw in s.Split('+'))
             {
                 string p = raw.Trim();
@@ -125,8 +166,12 @@ namespace QuickCut
                     if (key != Keys.None) return false;
                     int sym = Array.IndexOf(Symbols, p);
                     if (sym >= 0) { key = SymbolKeys[sym]; continue; }
+                    int alias = Array.IndexOf(Aliases, l);
+                    if (alias >= 0) { key = AliasKeys[alias]; continue; }
                     if (p.Length == 1 && char.IsDigit(p[0])) p = "D" + p;
                     else if (char.IsDigit(p[0])) return false;
+                    // Only plain names: Enum.TryParse would also take "A,B" (A|B, which is C) or "-5".
+                    foreach (char ch in p) if (!char.IsLetterOrDigit(ch)) return false;
                     Keys k;
                     if (!Enum.TryParse(p, true, out k)) return false;
                     key = k & Keys.KeyCode;
@@ -134,6 +179,11 @@ namespace QuickCut
             }
             return key != Keys.None;
         }
+
+        // Short names people type in config.ini that aren't the names of the Keys enum (Format writes those).
+        static readonly string[] Aliases = { "esc", "del", "ins", "pgup", "pgdn", "pgdown", "prtsc", "prtscn", "plus" };
+        static readonly Keys[] AliasKeys = { Keys.Escape, Keys.Delete, Keys.Insert, Keys.PageUp, Keys.PageDown, Keys.PageDown,
+                                             Keys.PrintScreen, Keys.PrintScreen, Keys.Oemplus };
 
         public static string Format(uint mods, Keys key)
         {

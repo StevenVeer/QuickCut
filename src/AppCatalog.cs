@@ -205,6 +205,9 @@ namespace QuickCut
             if (string.IsNullOrEmpty(cmd)) return null;
             cmd = cmd.Trim();
             if (cmd.StartsWith("\"")) { int e = cmd.IndexOf('"', 1); return e > 1 ? cmd.Substring(1, e - 1) : null; }
+            // Unquoted, the path may still have spaces (C:\Program Files\app.exe %1): it ends at ".exe".
+            int x = cmd.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+            if (x > 0 && (x + 4 == cmd.Length || char.IsWhiteSpace(cmd[x + 4]))) return cmd.Substring(0, x + 4);
             int sp = cmd.IndexOf(' ');
             return sp > 0 ? cmd.Substring(0, sp) : cmd;
         }

@@ -30,10 +30,16 @@ namespace QuickCut
         // Format: Type|Label|Target|Color|Args  (Args may contain '|')
         public string Serialize()
         {
-            return Type + "|" + Clean(Label).Replace('|', '/') + "|" + Clean(Target) + "|" + Clean(ColorHex) + "|" + Clean(Args);
+            return Type + "|" + Clean(Label).Replace('|', '/') + "|" + EscapeTarget(Clean(Target)) + "|" + Clean(ColorHex) + "|" + Clean(Args);
         }
 
         static string Clean(string s) { return (s ?? "").Replace("\r", " ").Replace("\n", " "); }
+
+        // A '|' in the target (web addresses can have one) would split the line in the wrong place, so it's
+        // saved as %7C, the URL encoding of '|'. Paths, key combos and media ids never contain either, and
+        // a browser treats both spellings the same, so files written before this still read the same way.
+        static string EscapeTarget(string s) { return s.Replace("|", "%7C"); }
+        static string UnescapeTarget(string s) { return s.Replace("%7C", "|").Replace("%7c", "|"); }
 
         public static RingItem Parse(string s)
         {
@@ -41,7 +47,7 @@ namespace QuickCut
             if (p.Length < 3) return null;
             ActionType t;
             if (!Enum.TryParse(p[0].Trim(), true, out t)) return null;
-            RingItem it = new RingItem(t, p[1], p[2]);
+            RingItem it = new RingItem(t, p[1], UnescapeTarget(p[2]));
             if (p.Length == 4) it.Args = p[3]; // older format without a color field
             else if (p.Length == 5) { it.ColorHex = p[3]; it.Args = p[4]; }
             return it;
@@ -158,7 +164,24 @@ namespace QuickCut
             sb.AppendLine("volumestep=" + VolumeStep);
             sb.AppendLine("center=" + Center.Serialize());
             foreach (RingItem it in Items) sb.AppendLine("item=" + it.Serialize());
-            File.WriteAllText(FilePath, sb.ToString(), new UTF8Encoding(false));
+            WriteAtomic(FilePath, sb.ToString());
+        }
+
+        // Writes the whole file or nothing: the text goes to a temp file next to it, which then takes the
+        // old file's place in one step. Writing in place would leave an empty or half file (and lose every
+        // button) if the PC crashed or lost power mid-write.
+        public static void WriteAtomic(string path, string text)
+        {
+            string tmp = path + ".tmp";
+            File.WriteAllText(tmp, text, new UTF8Encoding(false));
+            if (!File.Exists(path)) { File.Move(tmp, path); return; }
+            try { File.Replace(tmp, path, null); }
+            catch (IOException)
+            {
+                // Some drives (network shares, FAT) can't swap files: fall back to a plain overwrite.
+                File.Copy(tmp, path, true);
+                File.Delete(tmp);
+            }
         }
 
         public Config Clone()

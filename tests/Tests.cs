@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 using QuickCut;
 
@@ -14,6 +15,12 @@ namespace QuickCutTests
         {
             uint m; Keys k;
             return KeyCombo.TryParse(s, out m, out k) ? KeyCombo.Format(m, k) : "<invalid>";
+        }
+
+        static bool IsKey(string s, Keys expected)
+        {
+            uint m; Keys k;
+            return KeyCombo.TryParse(s, out m, out k) && k == expected;
         }
 
         static void Same(string input, string expected)
@@ -40,6 +47,21 @@ namespace QuickCutTests
             Same("Ctrl+65", "<invalid>");      // a number isn't a key name
             Same("", "<invalid>");
             Same("Ctrl+Nonsense", "<invalid>");
+            // Short names people type by hand (the config.ini header uses Esc)
+            Same("Ctrl+Shift+Esc", "Ctrl+Shift+Escape");
+            Same("Ctrl+Alt+Del", "Ctrl+Alt+Delete");
+            Same("Shift+Ins", "Shift+Insert");
+            // PageUp/PageDown share their values with Prior/Next, so compare keys, not names
+            Check("\"Ctrl+PgUp\" -> PageUp", IsKey("Ctrl+PgUp", Keys.PageUp));
+            Check("\"Ctrl+PgDn\" -> PageDown", IsKey("Ctrl+PgDn", Keys.PageDown) && IsKey("PgDown", Keys.PageDown));
+            Same("PrtSc", "PrintScreen");
+            Same("Ctrl++", "Ctrl+=");           // the plus key (= with Shift on US keyboards)
+            Same("+", "=");
+            Same("Ctrl+", "<invalid>");          // a trailing separator isn't the plus key
+            // Only plain key names: Enum.TryParse would read "A,B" as A|B (= C) and "-5" as a number
+            Same("Ctrl+A,B", "<invalid>");
+            Same("Ctrl+-5", "<invalid>");
+            Same("Ctrl+,", "Ctrl+,");           // the comma key itself still works
 
             // Everything Format writes must parse back to the same combo (config.ini relies on it).
             Keys[] keys = { Keys.A, Keys.D0, Keys.D9, Keys.F1, Keys.F24, Keys.Space, Keys.Escape, Keys.Enter, Keys.Tab,
@@ -73,6 +95,14 @@ namespace QuickCutTests
             c.Args = "line1\r\nline2";
             Check("newlines are flattened to spaces", RingItem.Parse(c.Serialize()).Args == "line1  line2", RingItem.Parse(c.Serialize()).Args);
             Check("every action type round-trips", RoundTripsAllTypes());
+
+            RingItem a = new RingItem(ActionType.Url, "Search", "https://example.com/?q=a|b");
+            RingItem ra = RingItem.Parse(a.Serialize());
+            Check("a web address with '|' round-trips", ra != null && ra.Target == a.Target && ra.ColorHex == "" && ra.Args == "",
+                ra == null ? "null" : "target=" + ra.Target + " color=" + ra.ColorHex + " args=" + ra.Args);
+            Check("'|' in a target is saved as %7C", a.Serialize() == "Url|Search|https://example.com/?q=a%7Cb||", a.Serialize());
+            Check("a target with %7c reads as '|'", RingItem.Parse("Url|S|x.com/?q=a%7cb||").Target == "x.com/?q=a|b");
+            Check("other % escapes are left alone", RingItem.Parse(@"Program|S|%APPDATA%\x%20y.exe||").Target == @"%APPDATA%\x%20y.exe");
 
             Check("old 4-field format reads args", RingItem.Parse(@"Program|X|C:\a.exe|-v").Args == "-v");
             Check("type is case-insensitive", RingItem.Parse("media|Play|playpause") != null);
@@ -150,6 +180,12 @@ namespace QuickCutTests
             Check("ExeFromCommand quoted", AppCatalog.ExeFromCommand("\"C:\\P F\\a.exe\" --x \"%1\"") == "C:\\P F\\a.exe");
             Check("ExeFromCommand unquoted", AppCatalog.ExeFromCommand("C:\\a.exe %1") == "C:\\a.exe");
             Check("ExeFromCommand empty", AppCatalog.ExeFromCommand("") == null && AppCatalog.ExeFromCommand(null) == null);
+            string exe = AppCatalog.ExeFromCommand("C:\\Program Files\\a.exe %1");
+            Check("ExeFromCommand unquoted path with spaces", exe == "C:\\Program Files\\a.exe", "got " + exe);
+            exe = AppCatalog.ExeFromCommand("C:\\Program Files\\B.EXE");
+            Check("ExeFromCommand unquoted, no arguments", exe == "C:\\Program Files\\B.EXE", "got " + exe);
+            exe = AppCatalog.ExeFromCommand("rundll32.exe url.dll,FileProtocolHandler %1");
+            Check("ExeFromCommand stops at the first .exe", exe == "rundll32.exe", "got " + exe);
             Check("IsAppsFolder", AppCatalog.IsAppsFolder(@"shell:AppsFolder\X!Y") && !AppCatalog.IsAppsFolder(@"C:\a.exe"));
             Check("ParseHex #1a2B3c", Theme.ParseHex("#1a2B3c") == Color.FromArgb(255, 0x1a, 0x2b, 0x3c));
             Check("ParseHex without #", Theme.ParseHex("FFFFFF") == Color.FromArgb(255, 255, 255, 255));
@@ -161,12 +197,65 @@ namespace QuickCutTests
             Check("IsWebUrl youtube.com", Actions.IsWebUrl("youtube.com"));
             Check("IsWebUrl https", Actions.IsWebUrl("https://x.com") && Actions.IsWebUrl("HTTP://x.com"));
             Check("IsWebUrl spotify: is not web", !Actions.IsWebUrl("spotify:"));
+            Check("IsWebUrl localhost:3000", Actions.IsWebUrl("localhost:3000"));
+            Check("IsWebUrl example.com:8080/x", Actions.IsWebUrl("example.com:8080/x"));
+            Check("IsWebUrl 192.168.1.1:80", Actions.IsWebUrl("192.168.1.1:80"));
+            Check("IsWebUrl [::1]:3000", Actions.IsWebUrl("[::1]:3000"));
+            Check("tel:112 is a link, not a host", !Actions.IsWebUrl("tel:112"));
+            Check("mailto: is a link", !Actions.IsWebUrl("mailto:a@b.com"));
+            Check("reverse-DNS link (com.epicgames.launcher://)", !Actions.IsWebUrl("com.epicgames.launcher://apps/x"));
+            Check("ms-settings: is a link", !Actions.IsWebUrl("ms-settings:sound"));
+            WebAddress("youtube.com", "https://youtube.com");
+            WebAddress("  example.com:8080/a?b ", "https://example.com:8080/a?b");
+            WebAddress("localhost:3000", "http://localhost:3000");
+            WebAddress("LOCALHOST/x", "http://LOCALHOST/x");
+            WebAddress("192.168.1.1", "http://192.168.1.1");
+            WebAddress("10.0.0.2:8443/admin", "http://10.0.0.2:8443/admin");
+            WebAddress("[::1]:3000", "http://[::1]:3000");
+            WebAddress("https://x.com", "https://x.com");
+            WebAddress("spotify:", "spotify:");
+            WebAddress("", "");
             Check("MediaShortName", Actions.MediaShortName("next") == Str.MediaShort[2] && Actions.MediaShortName("nope") == "");
             Check("preset counts match their names",
                 Palette.ButtonPresets.Length == Str.ButtonPresetNames.Length && Palette.HoverPresets.Length == Str.HoverPresetNames.Length);
             Check("media ids match their names",
                 Actions.MediaIds.Length == Str.MediaNames.Length && Actions.MediaIds.Length == Str.MediaShort.Length);
             Check("every preset is a valid color", AllPresetsParse());
+        }
+
+        static void WebAddress(string input, string expected)
+        {
+            string got = Actions.WebAddress(input);
+            Check("WebAddress \"" + input + "\" -> " + expected, got == expected, "got " + got);
+        }
+
+        // Saving and the crash log, in a temp folder (never the real %APPDATA%\QuickCut).
+        public static void FileTests()
+        {
+            Runner.Group("Files");
+            string dir = Path.Combine(Path.GetTempPath(), "QuickCutTests-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                string f = Path.Combine(dir, "config.ini");
+                Config.WriteAtomic(f, "one");
+                Check("WriteAtomic creates the file", File.ReadAllText(f) == "one");
+                Config.WriteAtomic(f, "two\r\nlines é");
+                Check("WriteAtomic replaces the file", File.ReadAllText(f) == "two\r\nlines é");
+                Check("WriteAtomic leaves no temp file", !File.Exists(f + ".tmp"));
+                Check("WriteAtomic writes UTF-8 without a BOM", File.ReadAllBytes(f)[0] == (byte)'t');
+
+                string log = Path.Combine(dir, "sub", "crash.log");
+                CrashLog.WriteTo(log, "test", new InvalidOperationException("boom"));
+                CrashLog.WriteTo(log, "test", null);
+                string text = File.ReadAllText(log);
+                Check("crash log has the error and its type", text.Contains("boom") && text.Contains("InvalidOperationException"));
+                Check("crash log appends", text.Contains("(no details)") && text.IndexOf("boom") < text.IndexOf("(no details)"));
+                File.WriteAllText(log, new string('x', 300 * 1024));
+                CrashLog.WriteTo(log, "test", new Exception("fresh"));
+                Check("crash log starts over when it's too big", new FileInfo(log).Length < 10 * 1024 && File.ReadAllText(log).Contains("fresh"));
+            }
+            finally { try { Directory.Delete(dir, true); } catch { } }
         }
 
         static bool HsvRoundTrips()
@@ -192,26 +281,9 @@ namespace QuickCutTests
 
         // Real bugs that aren't fixed yet. They're reported but don't fail the run.
         // When one starts passing, move it into the group above as a normal Check.
+        // None right now: add one with Runner.Group("Known bugs (not fixed yet)") and Runner.KnownBug(...).
         public static void KnownBugs()
         {
-            Runner.Group("Known bugs (not fixed yet)");
-            Runner.KnownBug("\"Ctrl+Shift+Esc\" parses (the example in the config.ini header)",
-                Combo("Ctrl+Shift+Esc") == "Ctrl+Shift+Escape", "got " + Combo("Ctrl+Shift+Esc"));
-            Runner.KnownBug("\"Ctrl++\" parses as the plus key", Combo("Ctrl++") != "<invalid>", "got " + Combo("Ctrl++"));
-            Runner.KnownBug("\"Ctrl+Alt+Del\" parses (alias)", Combo("Ctrl+Alt+Del") == "Ctrl+Alt+Delete", "got " + Combo("Ctrl+Alt+Del"));
-            Runner.KnownBug("\"Ctrl+PgUp\" parses (alias)", Combo("Ctrl+PgUp") != "<invalid>", "got " + Combo("Ctrl+PgUp"));
-            Runner.KnownBug("\"Ctrl+A,B\" is rejected (Enum.TryParse reads it as A|B = C)",
-                Combo("Ctrl+A,B") == "<invalid>", "got " + Combo("Ctrl+A,B"));
-
-            RingItem a = new RingItem(ActionType.Url, "Search", "https://example.com/?q=a|b");
-            RingItem ra = RingItem.Parse(a.Serialize());
-            Runner.KnownBug("a web address with '|' survives saving", ra != null && ra.Target == a.Target,
-                ra == null ? "null" : "target=" + ra.Target + " color=" + ra.ColorHex + " args=" + ra.Args);
-
-            string exe = AppCatalog.ExeFromCommand("C:\\Program Files\\a.exe %1");
-            Runner.KnownBug("ExeFromCommand handles an unquoted path with spaces", exe == "C:\\Program Files\\a.exe", "got " + exe);
-            Runner.KnownBug("\"localhost:3000\" counts as a web address (it's opened as a 'localhost:' link)",
-                Actions.IsWebUrl("localhost:3000"));
         }
     }
 }

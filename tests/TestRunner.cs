@@ -24,6 +24,7 @@ namespace QuickCutTests
             Tests.VolumeStepTests();
             Tests.HitTestTests();
             Tests.HelperTests();
+            Tests.FileTests();
             Tests.KnownBugs();
 
             Group("Safety");

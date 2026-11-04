@@ -16,6 +16,7 @@ namespace QuickCut
         public static string HotkeyUnavailable = "{0} is already taken by Windows or another program. Try a different combination.";
         public static string SaveFailed = "Saving failed: {0}";
         public static string RunFailed = "Couldn't run \"{0}\":\n{1}";
+        public static string CrashNotice = "Something went wrong in QuickCut. It keeps running; the details are in {0}";
 
         // Actions
         public static string NoProgram = "No app set.";

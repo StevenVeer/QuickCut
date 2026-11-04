@@ -75,15 +75,25 @@ namespace QuickCut
 
         IntPtr Callback(int code, IntPtr wParam, IntPtr lParam)
         {
-            if (code >= 0)
+            // Windows calls this from native code: an exception escaping here would end the whole app
+            // without a word. On any error the click just goes through as if QuickCut weren't there.
+            try
             {
-                int msg = (int)wParam;
-                if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP || msg == WM_LBUTTONDOWN || msg == WM_MBUTTONDOWN)
+                if (code >= 0)
                 {
-                    MSLLHOOKSTRUCT s = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
-                    if ((s.flags & LLMHF_INJECTED) == 0 && Handle(msg, new Point(s.pt.X, s.pt.Y), s.time))
-                        return (IntPtr)1; // swallow
+                    int msg = (int)wParam;
+                    if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONUP || msg == WM_LBUTTONDOWN || msg == WM_MBUTTONDOWN)
+                    {
+                        MSLLHOOKSTRUCT s = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                        if ((s.flags & LLMHF_INJECTED) == 0 && Handle(msg, new Point(s.pt.X, s.pt.Y), s.time))
+                            return (IntPtr)1; // swallow
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                swallowUp = false; // the press went through, so its release must too
+                CrashLog.Write("mouse hook", ex);
             }
             return CallNextHookEx(hook, code, wParam, lParam);
         }

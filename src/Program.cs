@@ -54,11 +54,59 @@ namespace QuickCut
                     Native.PostMessage((IntPtr)0xFFFF, App.ShowSettingsMsg, IntPtr.Zero, IntPtr.Zero);
                     return 0;
                 }
+                // Errors nobody caught: logged instead of WinForms' "Unhandled exception" dialog, which
+                // means nothing to a user and offers to quit. A tray app is better off carrying on.
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                Application.ThreadException += delegate(object s, ThreadExceptionEventArgs e) { CrashLog.Report(e.Exception); };
+                // Other threads: the app ends anyway, but the log says why.
+                AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e)
+                {
+                    CrashLog.Write("crash", e.ExceptionObject as Exception);
+                };
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new App());
             }
             return 0;
+        }
+    }
+
+    // Writes errors to %APPDATA%\QuickCut\crash.log, so a bug report can include what went wrong.
+    // It only ever stays on this PC. Never throws: logging must not cause a second error.
+    static class CrashLog
+    {
+        const long MaxSize = 256 * 1024; // past this the log starts over, so it can't grow forever
+        static readonly object gate = new object();
+        static bool told;
+
+        public static string FilePath { get { return System.IO.Path.Combine(Config.Folder, "crash.log"); } }
+
+        public static void Write(string where, Exception ex)
+        {
+            try { WriteTo(FilePath, where, ex); } catch { }
+        }
+
+        public static void WriteTo(string path, string where, Exception ex)
+        {
+            string entry = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + where + "  (QuickCut " +
+                typeof(CrashLog).Assembly.GetName().Version + ", " + Environment.OSVersion.VersionString + ")" +
+                Environment.NewLine + (ex != null ? ex.ToString() : "(no details)") + Environment.NewLine + Environment.NewLine;
+            lock (gate)
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                System.IO.FileInfo fi = new System.IO.FileInfo(path);
+                if (fi.Exists && fi.Length > MaxSize) System.IO.File.WriteAllText(path, entry);
+                else System.IO.File.AppendAllText(path, entry);
+            }
+        }
+
+        // An error on the UI thread: log it and, once per run, say so with a tray notice.
+        public static void Report(Exception ex)
+        {
+            Write("error", ex);
+            if (told || App.Instance == null) return;
+            told = true;
+            try { App.Instance.Notify(string.Format(Str.CrashNotice, FilePath), true); } catch { }
         }
     }
 
