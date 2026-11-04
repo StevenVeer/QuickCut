@@ -34,7 +34,7 @@ namespace QuickCut
         public static string AllSaved = "✓ All changes saved";
         public static string NotSaved = "Couldn't save your changes";
         public static string[] Tabs = { "Buttons", "Appearance", "General" };
-        public static string PreviewHint = "Click a button in the ring to edit it, or drag it to move it.";
+        public static string PreviewHint = "Click a button in the ring to edit it.";
         public static string AddButton = "Add button";
         public static string MoveLeft = "↺  Move";  // ↺
         public static string MoveRight = "Move  ↻"; // ↻
