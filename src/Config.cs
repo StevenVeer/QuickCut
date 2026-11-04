@@ -50,7 +50,7 @@ namespace QuickCut
 
     class Config
     {
-        public const string DefaultHotkey = "Alt+`"; // key left of 1; one hand, rarely used by other apps
+        public const string DefaultHotkey = "Ctrl+Space"; // one hand, same as other ring launchers
         public const int MaxItems = 12;
 
         public string Hotkey = DefaultHotkey;
