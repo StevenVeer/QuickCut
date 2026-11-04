@@ -100,6 +100,13 @@ namespace QuickCut
             if (ring.Visible) { ring.HideRing(); return; }
             uint mods; Keys key;
             KeyCombo.TryParse(activeHotkey, out mods, out key);
+            // With Alt or Win in the combo, letting go of it would open the app's menu bar or the
+            // Start menu. An unassigned key press in between tells Windows it was part of a combo.
+            if ((mods & (KeyCombo.MOD_ALT | KeyCombo.MOD_WIN)) != 0)
+            {
+                Native.keybd_event(0xE8, 0, 0, UIntPtr.Zero);
+                Native.keybd_event(0xE8, 0, 2, UIntPtr.Zero);
+            }
             ring.ShowRing((int)key);
         }
 

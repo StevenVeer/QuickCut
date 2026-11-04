@@ -121,6 +121,8 @@ namespace QuickCut
                 else
                 {
                     if (key != Keys.None) return false;
+                    int sym = Array.IndexOf(Symbols, p);
+                    if (sym >= 0) { key = SymbolKeys[sym]; continue; }
                     if (p.Length == 1 && char.IsDigit(p[0])) p = "D" + p;
                     else if (char.IsDigit(p[0])) return false;
                     Keys k;
@@ -138,9 +140,16 @@ namespace QuickCut
             if ((mods & MOD_ALT) != 0) sb.Append("Alt+");
             if ((mods & MOD_SHIFT) != 0) sb.Append("Shift+");
             if ((mods & MOD_WIN) != 0) sb.Append("Win+");
-            if (key >= Keys.D0 && key <= Keys.D9) sb.Append((int)(key - Keys.D0));
+            int sym = Array.IndexOf(SymbolKeys, key);
+            if (sym >= 0) sb.Append(Symbols[sym]);
+            else if (key >= Keys.D0 && key <= Keys.D9) sb.Append((int)(key - Keys.D0));
             else sb.Append(key);
             return sb.ToString();
         }
+
+        // Punctuation keys are shown as the character instead of names like "Oemtilde".
+        static readonly string[] Symbols = { "`", "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/" };
+        static readonly Keys[] SymbolKeys = { Keys.Oemtilde, Keys.OemMinus, Keys.Oemplus, Keys.OemOpenBrackets, Keys.Oem6,
+                                              Keys.Oem5, Keys.Oem1, Keys.Oem7, Keys.Oemcomma, Keys.OemPeriod, Keys.OemQuestion };
     }
 }

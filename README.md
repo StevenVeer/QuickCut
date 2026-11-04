@@ -3,7 +3,7 @@
 A tiny Windows app (~100 KB) that opens a ring of buttons around your mouse with one shortcut:
 launch programs, open websites, control media (Spotify, YouTube, ...) or send key combinations.
 
-- Open: **double right-click** or the hotkey **Ctrl+Alt+Space** (changeable in Settings).
+- Open: **double right-click** or the hotkey **Alt + `** (the key left of 1, changeable in Settings).
   Not in fullscreen apps (games), unless you turn that off.
 - **Hold**, move towards a button and release to pick it (with double right-click: hold the second click)
 - A quick tap keeps the ring open: click or 1-9 = button, Space = center, scroll = volume, Esc = close
