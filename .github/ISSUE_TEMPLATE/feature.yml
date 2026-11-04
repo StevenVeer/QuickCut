@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest an idea or improvement for QuickCut.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the idea! Describe what you'd like and why it would help.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Describe the feature or change.
+      placeholder: A button type that opens a folder.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other ways you've tried
+      description: Workarounds or other solutions you've considered.
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: QuickCut version
+      description: Filled in automatically when you use the button in Settings.
+      placeholder: "1.0.0"
+    validations:
+      required: false
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Filled in automatically when you use the button in Settings.
+      placeholder: "Windows 11 24H2 (build 26100)"
+    validations:
+      required: false

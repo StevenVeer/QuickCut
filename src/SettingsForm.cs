@@ -64,7 +64,7 @@ namespace QuickCut
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(S(780), S(636));
+            ClientSize = new Size(S(780), S(666));
             Rectangle wa = Screen.FromPoint(m).WorkingArea;
             StartPosition = FormStartPosition.Manual;
             Location = new Point(wa.X + Math.Max(0, (wa.Width - Width) / 2), wa.Y + Math.Max(0, (wa.Height - Height) / 2));
@@ -76,7 +76,7 @@ namespace QuickCut
             tabs = Add(this, new Segmented(Str.Tabs), 430, 16, 330, 36);
             tabs.SelectedIndexChanged += delegate { ShowTab(); };
 
-            Card left = Add(this, new Card(), 20, 64, 340, 552);
+            Card left = Add(this, new Card(), 20, 64, 340, 582);
             preview = Add(left, new RingPreview(), 8, 6, 324, 412);
             preview.Cfg = work;
             preview.Selected = work.Items.Count > 0 ? 0 : RingRenderer.HitCenter;
@@ -102,10 +102,10 @@ namespace QuickCut
             };
             lblPreviewHint = AddLabel(left, Str.PreviewHint, 20, 508, 300, 38, "muted"); // text follows the tab, see ShowTab
 
-            Card right = Add(this, new Card(), 376, 64, 384, 552);
+            Card right = Add(this, new Card(), 376, 64, 384, 582);
             pnlButtons = Add(right, new Panel(), 16, 14, 352, 488);
             pnlAppearance = Add(right, new Panel(), 16, 14, 352, 488);
-            pnlGeneral = Add(right, new Panel(), 16, 14, 352, 532); // a bit taller: room for the shortcut error line
+            pnlGeneral = Add(right, new Panel(), 16, 14, 352, 562); // a bit taller: room for the shortcut error line
 
             commitTimer = new Timer();
             commitTimer.Interval = 300;
@@ -344,6 +344,10 @@ namespace QuickCut
             tgNotice.CheckedChanged += delegate { if (!loading) { work.LaunchNotice = tgNotice.Checked; Changed(); } };
             FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 476, 220, 24);
             restore.Click += delegate { RestoreDefaults(); };
+            FlatButton bug = Add(p, new FlatButton(Str.ReportBug, FlatButton.Kind.Link), 0, 506, 160, 24);
+            bug.Click += delegate { OpenIssue("bug.yml"); };
+            FlatButton idea = Add(p, new FlatButton(Str.SuggestFeature, FlatButton.Kind.Link), 172, 506, 180, 24);
+            idea.Click += delegate { OpenIssue("feature.yml"); };
 
             belowError = new System.Collections.Generic.List<Control>();
             belowErrorTop = new System.Collections.Generic.List<int>();
@@ -584,6 +588,43 @@ namespace QuickCut
         // The error line only takes room while there is something to say; the rest slides down under it.
         System.Collections.Generic.List<Control> belowError;
         System.Collections.Generic.List<int> belowErrorTop;
+        // Opens a new GitHub issue with the versions filled in (issue forms take field ids as query parameters).
+        void OpenIssue(string template)
+        {
+            string url = "https://github.com/StevenVeer/QuickCut/issues/new?template=" + template +
+                "&version=" + Uri.EscapeDataString(AppVersion()) +
+                "&windows=" + Uri.EscapeDataString(WindowsVersion());
+            try { System.Diagnostics.Process.Start(url); }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        }
+
+        static string AppVersion()
+        {
+            Version v = typeof(SettingsForm).Assembly.GetName().Version;
+            return v.Revision > 0 ? v.ToString() : v.ToString(3); // 1.0.0, or 1.0.0.5 when the revision is set
+        }
+
+        // "Windows 11 Pro 24H2 (build 26100.2314)". The registry's ProductName still says "Windows 10" on 11, so the build decides.
+        static string WindowsVersion()
+        {
+            try
+            {
+                using (RegistryKey k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion"))
+                {
+                    string build = Convert.ToString(k.GetValue("CurrentBuild", ""));
+                    int b;
+                    int.TryParse(build, out b);
+                    string name = Convert.ToString(k.GetValue("ProductName", "Windows"));
+                    if (b >= 22000) name = name.Replace("Windows 10", "Windows 11");
+                    string display = Convert.ToString(k.GetValue("DisplayVersion", ""));
+                    object ubr = k.GetValue("UBR");
+                    string full = build + (ubr != null ? "." + ubr : "");
+                    return (name + " " + display).Trim() + " (build " + full + ")";
+                }
+            }
+            catch { return Environment.OSVersion.VersionString; }
+        }
+
         void LayoutHotkeyError()
         {
             bool show = lblHotkeyError.Text.Length > 0;

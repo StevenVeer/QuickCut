@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in QuickCut doesn't work the way it should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report this. The more detail, the quicker it can be fixed.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe what went wrong.
+      placeholder: When I open the ring with Ctrl+Space, the volume bar doesn't show up.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can someone else make it happen?
+      placeholder: |
+        1. Open Settings
+        2. Go to General
+        3. Turn on "Show volume under the ring"
+        4. Open the ring
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: QuickCut version
+      description: Filled in automatically when you use the button in Settings.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Filled in automatically when you use the button in Settings.
+      placeholder: "Windows 11 24H2 (build 26100)"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, your display scaling, other apps that might be involved. You can drag images into this box.
+    validations:
+      required: false

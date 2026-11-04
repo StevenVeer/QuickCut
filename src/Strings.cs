@@ -109,6 +109,8 @@ namespace QuickCut
         public static string StartWithWindows = "Start with Windows";
         public static string LaunchNotice = "Show a notice when QuickCut starts";
         public static string RestoreButtons = "Restore default buttons";
+        public static string ReportBug = "Report a bug";
+        public static string SuggestFeature = "Suggest a feature";
         public static string RestoreConfirm = "Replace all buttons with the suggested defaults?";
 
         // App picker and dialogs
