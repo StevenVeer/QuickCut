@@ -69,8 +69,23 @@ namespace QuickCut
         public static string HoverColor = "Hover color";
         public static string HoverStyle = "Hover style";
         public static string[] HoverOptions = { "Fill", "Inverted", "Outline", "Grow" };
-        public static string HoverHint = "Hover over the ring on the left to try it. \"A\" is the default color, \"W\" your Windows accent color.";
+        public static string HoverHint = "Hover over the ring on the left to try it.";
         public static string ResetAppearance = "Reset to defaults";
+
+        // Color choosers and the color picker
+        public static string[] ButtonColorModes = { "Automatic", "Choose" };
+        public static string[] ItemColorModes = { "Same as all buttons", "Choose" };
+        public static string[] HoverColorModes = { "Automatic", "Windows accent", "Choose" };
+        public static string[] ButtonPresetNames = { "Black", "Graphite", "Steel", "Slate", "Navy", "Indigo", "Teal", "Forest",
+            "Plum", "Wine", "Espresso", "Rust", "Mist", "Sand", "White" };
+        public static string[] HoverPresetNames = { "Blue", "Sky", "Cyan", "Teal", "Mint", "Green", "Lime", "Yellow",
+            "Amber", "Coral", "Red", "Pink", "Magenta", "Violet", "Purple" };
+        public static string MoreColors = "More colors…";
+        public static string CustomColor = "Custom {0}";
+        public static string PickColorTitle = "Pick a color";
+        public static string CurrentColor = "Current";
+        public static string NewColor = "New";
+        public static string Done = "Done";
 
         // General tab
         public static string OpeningSection = "Opening the ring";

@@ -12,8 +12,6 @@ namespace QuickCut
         static readonly string[] ThemeIds = { "system", "light", "dark" };
         static readonly string[] HoverIds = { "fill", "invert", "outline", "grow" };
         static readonly string[] SizeIds = { "small", "medium", "large" };
-        static readonly string[] ButtonSwatches = { "", "#2E2F37", "#26215C", "#04342C", "#4A1B0C", "#F1EFE8" };
-        static readonly string[] AccentSwatches = { "", "windows", "#378ADD", "#1D9E75", "#D85A30", "#D4537E", "#7F77DD" }; // "" = orange
 
         readonly App app;
         readonly Config work;
@@ -36,11 +34,12 @@ namespace QuickCut
         AppDisplay appDisplay;
         FieldBox argsField, urlField, keysField, labelField;
         HotkeyBox keysBox;
-        SwatchRow itemColor;
+        ColorChooser itemColor;
 
         // Appearance tab
         Segmented themeSeg, hoverSeg, sizeSeg;
-        SwatchRow allColor, accentColor;
+        ColorChooser allColor, accentColor;
+        Label lblSize, lblHoverStyle, lblHoverHint;
 
         // General tab
         ToggleSwitch tgMouse, tgFullscreen, tgAutostart, tgNotice;
@@ -64,7 +63,7 @@ namespace QuickCut
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(S(780), S(548));
+            ClientSize = new Size(S(780), S(600));
             Rectangle wa = Screen.FromPoint(m).WorkingArea;
             StartPosition = FormStartPosition.Manual;
             Location = new Point(wa.X + Math.Max(0, (wa.Width - Width) / 2), wa.Y + Math.Max(0, (wa.Height - Height) / 2));
@@ -76,17 +75,17 @@ namespace QuickCut
             tabs = Add(this, new Segmented(Str.Tabs), 430, 16, 330, 36);
             tabs.SelectedIndexChanged += delegate { ShowTab(); };
 
-            Card left = Add(this, new Card(), 20, 64, 340, 464);
-            preview = Add(left, new RingPreview(), 8, 6, 324, 324);
+            Card left = Add(this, new Card(), 20, 64, 340, 516);
+            preview = Add(left, new RingPreview(), 8, 6, 324, 376);
             preview.Cfg = work;
             preview.Selected = work.Items.Count > 0 ? 0 : RingRenderer.HitCenter;
             preview.SelectedChanged += delegate { tabs.SelectedIndex = 0; LoadEditor(); };
             preview.Reordered += delegate { LoadEditor(); Changed(); };
             // Circular arrows: "left/right" is ambiguous on a circle (it flips at the bottom).
             Font arrows = F("Segoe UI Symbol", 10.5f); // has the ↺ ↻ glyphs
-            btnLeft = Add(left, new FlatButton(Str.MoveLeft, FlatButton.Kind.Normal), 20, 336, 88, 34);
-            btnAdd = Add(left, new FlatButton(Str.AddButton, FlatButton.Kind.Normal), 116, 336, 108, 34);
-            btnRight = Add(left, new FlatButton(Str.MoveRight, FlatButton.Kind.Normal), 232, 336, 88, 34);
+            btnLeft = Add(left, new FlatButton(Str.MoveLeft, FlatButton.Kind.Normal), 20, 388, 88, 34);
+            btnAdd = Add(left, new FlatButton(Str.AddButton, FlatButton.Kind.Normal), 116, 388, 108, 34);
+            btnRight = Add(left, new FlatButton(Str.MoveRight, FlatButton.Kind.Normal), 232, 388, 88, 34);
             btnLeft.Font = btnRight.Font = arrows;
             ToolTip tips = new ToolTip();
             tips.SetToolTip(btnLeft, Str.MoveCounterClockwise);
@@ -94,18 +93,18 @@ namespace QuickCut
             btnLeft.Click += delegate { MoveItem(-1); };
             btnRight.Click += delegate { MoveItem(1); };
             btnAdd.Click += delegate { AddItem(); };
-            btnTest = Add(left, new FlatButton(Str.Test, FlatButton.Kind.Normal), 20, 378, 300, 34);
+            btnTest = Add(left, new FlatButton(Str.Test, FlatButton.Kind.Normal), 20, 430, 300, 34);
             btnTest.Click += delegate
             {
                 try { Actions.Execute(Current); }
                 catch (Exception ex) { MessageBox.Show(this, ex.Message, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             };
-            AddLabel(left, Str.PreviewHint, 20, 420, 300, 38, "muted");
+            AddLabel(left, Str.PreviewHint, 20, 472, 300, 38, "muted");
 
-            Card right = Add(this, new Card(), 376, 64, 384, 464);
-            pnlButtons = Add(right, new Panel(), 16, 14, 352, 436);
-            pnlAppearance = Add(right, new Panel(), 16, 14, 352, 436);
-            pnlGeneral = Add(right, new Panel(), 16, 14, 352, 436);
+            Card right = Add(this, new Card(), 376, 64, 384, 516);
+            pnlButtons = Add(right, new Panel(), 16, 14, 352, 488);
+            pnlAppearance = Add(right, new Panel(), 16, 14, 352, 488);
+            pnlGeneral = Add(right, new Panel(), 16, 14, 352, 488);
 
             commitTimer = new Timer();
             commitTimer.Interval = 300;
@@ -229,59 +228,81 @@ namespace QuickCut
             labelField = AddField(p, new TextBox(), 0, 302, 352);
             labelField.Box.TextChanged += delegate { if (!loading) { Current.Label = labelField.Box.Text; Changed(); } };
 
-            AddLabel(p, Str.ButtonColor, 0, 344, 200, 20, "muted");
-            itemColor = Add(p, new SwatchRow(ButtonSwatches), 0, 364, 352, 30);
-            itemColor.DefaultColor = delegate
+            itemColor = Add(p, ButtonChooser(Str.ButtonColor, Str.ItemColorModes), 0, 344, 352, ColorChooser.ClosedHeight);
+            itemColor.AutoColor = delegate
             {
                 Color? c = Theme.ParseHex(work.ButtonColor);
                 return c.HasValue ? c.Value : pal.Button;
             };
-            itemColor.Changed += delegate { Current.ColorHex = itemColor.Selected; Changed(); };
+            itemColor.Changed += delegate { Current.ColorHex = itemColor.Value; Changed(); };
+        }
+
+        static ColorChooser ButtonChooser(string title, string[] modes)
+        {
+            return new ColorChooser(title, modes, false, Palette.ButtonPresets, Str.ButtonPresetNames);
         }
 
         void BuildAppearanceTab()
         {
             Panel p = pnlAppearance;
-            AddLabel(p, Str.Theme, 0, 0, 352, 20, "muted");
+            AddLabel(p, Str.Theme, 0, 0, 200, 20, "muted");
+            // The reset link shares the first row, so the color grids have room to open below.
+            FlatButton reset = Add(p, new FlatButton(Str.ResetAppearance, FlatButton.Kind.Link), 172, -2, 180, 22);
+            reset.AlignRight = true;
             themeSeg = Add(p, new Segmented(Str.ThemeOptions), 0, 20, 352, 36);
             themeSeg.SelectedIndex = Math.Max(0, Array.IndexOf(ThemeIds, work.ThemeMode));
             themeSeg.SelectedIndexChanged += delegate { work.ThemeMode = ThemeIds[themeSeg.SelectedIndex]; ApplyTheme(); Changed(); };
 
-            AddLabel(p, Str.RingSize, 0, 72, 352, 20, "muted");
-            sizeSeg = Add(p, new Segmented(Str.SizeOptions), 0, 92, 352, 36);
+            lblSize = AddLabel(p, Str.RingSize, 0, 0, 352, 20, "muted");
+            sizeSeg = Add(p, new Segmented(Str.SizeOptions), 0, 0, 352, 36);
             sizeSeg.SelectedIndex = Math.Max(0, Array.IndexOf(SizeIds, work.RingSize));
             sizeSeg.SelectedIndexChanged += delegate { work.RingSize = SizeIds[sizeSeg.SelectedIndex]; Changed(); };
 
-            AddLabel(p, Str.ButtonColorAll, 0, 144, 352, 20, "muted");
-            allColor = Add(p, new SwatchRow(ButtonSwatches), 0, 164, 352, 30);
-            allColor.DefaultColor = delegate { return pal.Button; };
-            allColor.Selected = work.ButtonColor;
-            allColor.Changed += delegate { work.ButtonColor = allColor.Selected; itemColor.Invalidate(); Changed(); };
+            allColor = Add(p, ButtonChooser(Str.ButtonColorAll, Str.ButtonColorModes), 0, 0, 352, ColorChooser.ClosedHeight);
+            allColor.AutoColor = delegate { return pal.Button; };
+            allColor.Value = work.ButtonColor;
+            allColor.Changed += delegate { work.ButtonColor = allColor.Value; Changed(); };
+            allColor.HeightChanged += delegate { LayoutAppearance(); };
 
-            AddLabel(p, Str.HoverColor, 0, 210, 352, 20, "muted");
-            accentColor = Add(p, new SwatchRow(AccentSwatches), 0, 230, 352, 30);
-            accentColor.DefaultColor = delegate { return Palette.DefaultAccent; };
-            accentColor.Selected = work.Accent;
-            accentColor.Changed += delegate { work.Accent = accentColor.Selected; ApplyTheme(); Changed(); };
+            accentColor = Add(p, new ColorChooser(Str.HoverColor, Str.HoverColorModes, true, Palette.HoverPresets, Str.HoverPresetNames),
+                0, 0, 352, ColorChooser.ClosedHeight);
+            accentColor.AutoColor = delegate { return Palette.DefaultAccent; };
+            accentColor.Value = work.Accent;
+            accentColor.Changed += delegate { work.Accent = accentColor.Value; ApplyTheme(); Changed(); };
+            accentColor.HeightChanged += delegate { LayoutAppearance(); };
 
-            AddLabel(p, Str.HoverStyle, 0, 276, 352, 20, "muted");
-            hoverSeg = Add(p, new Segmented(Str.HoverOptions), 0, 296, 352, 36);
+            lblHoverStyle = AddLabel(p, Str.HoverStyle, 0, 0, 352, 20, "muted");
+            hoverSeg = Add(p, new Segmented(Str.HoverOptions), 0, 0, 352, 36);
             hoverSeg.SelectedIndex = Math.Max(0, Array.IndexOf(HoverIds, work.HoverStyle));
             hoverSeg.SelectedIndexChanged += delegate { work.HoverStyle = HoverIds[hoverSeg.SelectedIndex]; Changed(); };
 
-            AddLabel(p, Str.HoverHint, 0, 342, 352, 40, "muted");
-            FlatButton reset = Add(p, new FlatButton(Str.ResetAppearance, FlatButton.Kind.Link), 0, 390, 200, 24);
+            lblHoverHint = AddLabel(p, Str.HoverHint, 0, 0, 352, 40, "muted");
+            LayoutAppearance();
+
             reset.Click += delegate
             {
                 work.ThemeMode = "system"; work.HoverStyle = "fill"; work.Accent = ""; work.ButtonColor = ""; work.RingSize = "medium";
                 work.Center.ColorHex = "";
                 foreach (RingItem it in work.Items) it.ColorHex = "";
                 themeSeg.SelectedIndex = 0; hoverSeg.SelectedIndex = 0; sizeSeg.SelectedIndex = 1;
-                allColor.Selected = ""; accentColor.Selected = "";
+                allColor.Value = ""; accentColor.Value = "";
                 ApplyTheme();
                 LoadEditor();
                 Changed();
             };
+        }
+
+        // Stacks the Appearance settings; the color choosers grow when their grid is open.
+        void LayoutAppearance()
+        {
+            const float gap = 12;
+            float y = 68; // below the theme row
+            lblSize.Top = S(y); sizeSeg.Top = S(y + 20); y += 56 + gap;
+            allColor.Top = S(y); y += allColor.Height / sc + gap;
+            accentColor.Top = S(y); y += accentColor.Height / sc + gap;
+            lblHoverStyle.Top = S(y); hoverSeg.Top = S(y + 20); y += 56 + gap;
+            lblHoverHint.Top = S(y);
+            lblHoverHint.Visible = y + 20 <= 488; // only when both grids aren't open at once
         }
 
         void BuildGeneralTab()
@@ -416,7 +437,7 @@ namespace QuickCut
                 mediaTiles[i].Selected = it.Type == ActionType.Media && Actions.MediaIds[i] == it.Target;
             keysBox.Combo = it.Type == ActionType.Keys ? it.Target : "";
             labelField.Box.Text = it.Label;
-            itemColor.Selected = it.ColorHex;
+            itemColor.Value = it.ColorHex;
 
             btnLeft.Enabled = btnRight.Enabled = !center && n > 1;
             btnAdd.Enabled = n < Config.MaxItems;
@@ -591,11 +612,13 @@ namespace QuickCut
         }
 
         // Draws the window with default buttons into a PNG (used to check the design), off screen.
-        public static void SavePreview(string path, string theme, int tab, string size)
+        public static void SavePreview(string path, string theme, int tab, string size, string buttonColor, string accent)
         {
             Config c = Config.CreateDefault();
             c.ThemeMode = theme;
             c.RingSize = size;
+            c.ButtonColor = buttonColor;
+            c.Accent = accent;
             using (SettingsForm f = new SettingsForm(null, c))
             {
                 f.StartPosition = FormStartPosition.Manual;

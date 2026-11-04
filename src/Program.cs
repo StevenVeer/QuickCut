@@ -30,9 +30,10 @@ namespace QuickCut
 
             if (args.Length >= 2 && args[0] == "--settings-preview")
             {
-                // --settings-preview out.png [theme] [tabIndex] [size]
+                // --settings-preview out.png [theme] [tabIndex] [size] [buttonColor] [accent]
                 Application.EnableVisualStyles();
-                SettingsForm.SavePreview(args[1], args.Length > 2 ? args[2] : "system", args.Length > 3 ? int.Parse(args[3]) : 0, args.Length > 4 ? args[4] : "medium");
+                SettingsForm.SavePreview(args[1], args.Length > 2 ? args[2] : "system", args.Length > 3 ? int.Parse(args[3]) : 0,
+                    args.Length > 4 ? args[4] : "medium", args.Length > 5 ? args[5] : "", args.Length > 6 ? args[6] : "");
                 return 0;
             }
 

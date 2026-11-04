@@ -84,6 +84,7 @@ namespace QuickCut
     {
         public enum Kind { Normal, Link, Danger }
         public Kind Style;
+        public bool AlignRight; // links only
 
         public FlatButton(string text, Kind style) { Text = text; Style = style; Cursor = Cursors.Hand; TabStop = true; }
 
@@ -92,7 +93,7 @@ namespace QuickCut
             Graphics g = Prepare(e);
             Color fg = !Enabled ? Pal.Muted : Style == Kind.Link ? Pal.AccentText : Style == Kind.Danger ? Pal.Danger : Pal.Text;
             TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
-                (Style == Kind.Normal ? TextFormatFlags.HorizontalCenter : TextFormatFlags.Left);
+                (Style == Kind.Normal ? TextFormatFlags.HorizontalCenter : AlignRight ? TextFormatFlags.Right : TextFormatFlags.Left);
             if (Style == Kind.Normal)
                 using (GraphicsPath p = Round(Inner, 6 * S))
                 {
@@ -223,84 +224,183 @@ namespace QuickCut
         }
     }
 
-    // Color picker row: a "default" swatch, preset colors and a "+" for any color.
-    class SwatchRow : ThemedControl
+    // A color setting, in the style of the accent color page in Windows Settings: a switch between Automatic,
+    // the Windows accent color (optional) and Choose. Choose shows a grid of preset colors; its last cell opens
+    // the color picker. Value: "" = automatic, "windows" = Windows accent color, otherwise #RRGGBB.
+    class ColorChooser : ThemedControl
     {
-        public string[] Colors;              // hex values or "windows"; index 0 must be "" (default)
-        public Func<Color> DefaultColor;     // what "default" currently looks like
-        string selected = "";
-        public event EventHandler Changed;
-        public string Selected { get { return selected; } set { selected = value ?? ""; Invalidate(); } }
+        const int Cols = 8;
+        public const int ClosedHeight = 56, OpenHeight = 136; // logical pixels
+        readonly string title;
+        readonly string[] presets, names;
+        readonly bool windowsMode;
+        readonly Segmented modes;
+        readonly ToolTip tip = new ToolTip();
+        public Func<Color> AutoColor;  // what Automatic looks like right now (the picker starts there)
+        public event EventHandler Changed;       // the user picked something
+        public event EventHandler HeightChanged; // the grid opened or closed
+        string value = "";
+        string lastChosen;
+        int hot = -1;
+        bool syncing;
 
-        public SwatchRow(string[] colors) { Colors = colors; Cursor = Cursors.Hand; }
+        public ColorChooser(string title, string[] modeNames, bool windowsMode, string[] presets, string[] names)
+        {
+            this.title = title;
+            this.windowsMode = windowsMode;
+            this.presets = presets;
+            this.names = names;
+            lastChosen = presets[0];
+            modes = new Segmented(modeNames);
+            Controls.Add(modes);
+            modes.SelectedIndexChanged += delegate
+            {
+                if (syncing) return;
+                int i = modes.SelectedIndex;
+                Pick(i == 0 ? "" : windowsMode && i == 1 ? "windows" : lastChosen);
+            };
+        }
 
-        float D { get { return 22 * S; } }
-        float Step { get { return 30 * S; } }
-        float Pad { get { return 6 * S; } } // room for the selection ring
+        float D { get { return 30 * S; } }
+        float StepX { get { return (Width - 2 * Pad - D) / (Cols - 1); } } // the grid spans the full width
+        float StepY { get { return 38 * S; } }
+        float Pad { get { return 4 * S; } }       // room for the selection ring
+        float GridTop { get { return 60 * S; } }  // below the title row and the switch
 
-        bool IsCustom { get { return selected.Length > 0 && Array.IndexOf(Colors, selected) < 0; } }
-        int Count { get { return Colors.Length + (IsCustom ? 1 : 0) + 1; } } // + custom + "+"
+        bool Choosing { get { return value.StartsWith("#"); } }
+        bool IsCustom { get { return Choosing && Array.IndexOf(presets, value) < 0; } }
+
+        public string Value
+        {
+            get { return value; }
+            set
+            {
+                string v = value ?? "";
+                if (v == "windows" && !windowsMode) v = "";
+                if (v.Length > 0 && v != "windows") { Color? c = Theme.ParseHex(v); v = c.HasValue ? Theme.ToHex(c.Value) : ""; }
+                this.value = v;
+                if (Choosing) lastChosen = v;
+                syncing = true;
+                modes.SelectedIndex = v == "" ? 0 : v == "windows" ? 1 : modes.Options.Length - 1;
+                syncing = false;
+                UpdateHeight();
+                Invalidate();
+            }
+        }
+
+        void Pick(string v)
+        {
+            Value = v;
+            if (Changed != null) Changed(this, EventArgs.Empty);
+        }
+
+        void UpdateHeight()
+        {
+            int h = (int)Math.Round((Choosing ? OpenHeight : ClosedHeight) * S);
+            if (h == Height) return;
+            Height = h;
+            if (HeightChanged != null) HeightChanged(this, EventArgs.Empty);
+        }
+
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            base.OnLayout(e);
+            modes.SetBounds(0, (int)Math.Round(20 * S), Width, (int)Math.Round(36 * S));
+        }
+
+        RectangleF Cell(int i)
+        {
+            return new RectangleF(Pad + (i % Cols) * StepX, GridTop + Pad + (i / Cols) * StepY, D, D);
+        }
+
+        int CellAt(Point p)
+        {
+            if (!Choosing) return -1;
+            for (int i = 0; i <= presets.Length; i++)
+                if (RectangleF.Inflate(Cell(i), 4 * S, 4 * S).Contains(p)) return i;
+            return -1;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            int i = CellAt(e.Location);
+            Cursor = i >= 0 ? Cursors.Hand : Cursors.Default;
+            if (i == hot) return;
+            hot = i;
+            tip.SetToolTip(this, i < 0 ? null : i < presets.Length ? names[i] : Str.MoreColors);
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e) { hot = -1; base.OnMouseLeave(e); }
 
         protected override void OnMouseClick(MouseEventArgs e)
         {
             base.OnMouseClick(e);
-            int i = (int)((e.X - Pad + (Step - D) / 2) / Step);
-            if (i < 0 || i >= Count) return;
-            if (i < Colors.Length) Pick(Colors[i]);
-            else if (IsCustom && i == Colors.Length) Pick(selected);
-            else
-                using (ColorDialog d = new ColorDialog())
-                {
-                    d.FullOpen = true;
-                    Color? cur = Theme.ParseHex(selected);
-                    d.Color = cur.HasValue ? cur.Value : DefaultColor();
-                    if (d.ShowDialog(FindForm()) == DialogResult.OK) Pick(Theme.ToHex(d.Color));
-                }
+            int i = CellAt(e.Location);
+            if (i < 0) return;
+            if (i < presets.Length) { Pick(presets[i]); return; }
+            Color? cur = Theme.ParseHex(value);
+            using (ColorPickerForm d = new ColorPickerForm(Pal, cur.HasValue ? cur.Value : AutoColor()))
+                if (d.ShowDialog(FindForm()) == DialogResult.OK) Pick(Theme.ToHex(d.Result));
         }
 
-        void Pick(string hex)
+        // Name of the chosen color for the title row; empty unless a color is chosen.
+        string ChosenName()
         {
-            selected = hex;
-            Invalidate();
-            if (Changed != null) Changed(this, EventArgs.Empty);
+            if (!Choosing) return "";
+            int i = Array.IndexOf(presets, value);
+            return i >= 0 ? names[i] : string.Format(Str.CustomColor, value);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = Prepare(e);
-            float y = (Height - D) / 2;
-            int slot = 0;
-            for (int i = 0; i < Colors.Length; i++, slot++)
+            Rectangle row = new Rectangle(0, 0, Width, (int)Math.Round(20 * S));
+            const TextFormatFlags flags = TextFormatFlags.Top | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            TextRenderer.DrawText(g, title, Font, row, Pal.Muted, flags | TextFormatFlags.Left);
+            TextRenderer.DrawText(g, ChosenName(), Font, row, Pal.Text, flags | TextFormatFlags.Right);
+            if (!Choosing) return;
+
+            for (int i = 0; i < presets.Length; i++)
+                Square(g, Cell(i), Theme.ParseHex(presets[i]).Value, presets[i] == value, i == hot);
+
+            // Last cell: the custom color when one is chosen, otherwise a dashed "+".
+            RectangleF r = Cell(presets.Length);
+            if (IsCustom) Square(g, r, Theme.ParseHex(value).Value, true, hot == presets.Length);
+            else
             {
-                bool windows = Colors[i] == "windows"; // the Windows accent color
-                Color? c = windows ? Art.Accent() : Theme.ParseHex(Colors[i]);
-                Dot(g, slot, y, c.HasValue ? c.Value : DefaultColor(), Colors[i] == selected, i == 0 ? "A" : windows ? "W" : null);
-            }
-            if (IsCustom) { Dot(g, slot, y, Theme.ParseHex(selected).Value, true, null); slot++; }
-            RectangleF r = new RectangleF(slot * Step + Pad, y, D, D);
-            using (Pen p = new Pen(Pal.Muted, S) { DashStyle = DashStyle.Dash }) g.DrawEllipse(p, r);
-            using (Pen p = new Pen(Pal.Muted, 1.5f * S))
-            {
-                float cx = r.X + D / 2, cy = r.Y + D / 2, a = D * 0.22f;
-                g.DrawLine(p, cx - a, cy, cx + a, cy);
-                g.DrawLine(p, cx, cy - a, cx, cy + a);
+                using (GraphicsPath p = Round(r, 6 * S))
+                {
+                    if (hot == presets.Length) using (SolidBrush b = new SolidBrush(Pal.Hover)) g.FillPath(b, p);
+                    using (Pen pen = new Pen(Pal.Muted, S) { DashStyle = DashStyle.Dash }) g.DrawPath(pen, p);
+                }
+                using (Pen pen = new Pen(Pal.Muted, 1.5f * S))
+                {
+                    float cx = r.X + D / 2, cy = r.Y + D / 2, a = D * 0.2f;
+                    g.DrawLine(pen, cx - a, cy, cx + a, cy);
+                    g.DrawLine(pen, cx, cy - a, cx, cy + a);
+                }
             }
         }
 
-        // letter: "A" marks the default swatch, "W" the Windows accent color.
-        void Dot(Graphics g, int slot, float y, Color c, bool sel, string letter)
+        void Square(Graphics g, RectangleF r, Color c, bool sel, bool hover)
         {
-            RectangleF r = new RectangleF(slot * Step + Pad, y, D, D);
-            using (SolidBrush b = new SolidBrush(c)) g.FillEllipse(b, r);
-            using (Pen p = new Pen(Pal.Border)) g.DrawEllipse(p, r);
-            if (letter != null)
-                using (Font f = new Font(Font.FontFamily, Font.Size * 0.75f, FontStyle.Bold, Font.Unit))
-                    DrawCentered(g, letter, f, Rectangle.Round(r), Theme.TextOn(c));
-            if (sel)
+            using (GraphicsPath p = Round(r, 6 * S))
             {
-                RectangleF o = RectangleF.Inflate(r, 3 * S, 3 * S);
-                using (Pen p = new Pen(Pal.Text, 2 * S)) g.DrawEllipse(p, o);
+                using (SolidBrush b = new SolidBrush(c)) g.FillPath(b, p);
+                using (Pen pen = new Pen(hover ? Pal.Muted : Pal.Border)) g.DrawPath(pen, p);
             }
+            if (sel)
+                using (GraphicsPath p = Round(RectangleF.Inflate(r, 3 * S, 3 * S), 8 * S))
+                using (Pen pen = new Pen(Pal.Text, 2 * S))
+                    g.DrawPath(pen, p);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) tip.Dispose();
+            base.Dispose(disposing);
         }
     }
 

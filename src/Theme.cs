@@ -24,6 +24,15 @@ namespace QuickCut
 
         public static readonly Color DefaultAccent = Color.FromArgb(0xEF, 0x9F, 0x27); // orange
 
+        // Preset colors offered in Settings; names are in Str.ButtonPresetNames / Str.HoverPresetNames.
+        // Button colors are muted so labels stay readable; hover colors are bright so they stand out on the ring.
+        public static readonly string[] ButtonPresets = {
+            "#000000", "#2E2F37", "#5A5A63", "#44546A", "#1F3A5F", "#26215C", "#0F4C4A", "#2D4A2B",
+            "#4A2545", "#5C1F2A", "#3D2B1F", "#7A2E12", "#D6DCE5", "#E8E1D3", "#FFFFFF" };
+        public static readonly string[] HoverPresets = {
+            "#378ADD", "#4FC3F7", "#22B8CF", "#1D9E75", "#3DDC97", "#4CAF50", "#8BC34A", "#F2C230",
+            "#FFB300", "#D85A30", "#E5484D", "#D4537E", "#C2185B", "#9C27B0", "#7F77DD" };
+
         // "" = default orange, "windows" = the Windows accent color, otherwise a hex color.
         public static Color AccentFor(string setting)
         {
@@ -90,6 +99,34 @@ namespace QuickCut
         }
 
         public static string ToHex(Color c) { return "#" + c.R.ToString("X2") + c.G.ToString("X2") + c.B.ToString("X2"); }
+
+        // h in degrees (0-360), s and v from 0 to 1.
+        public static Color FromHsv(float h, float s, float v)
+        {
+            Func<float, int> f = delegate(float n)
+            {
+                float k = (n + h / 60f) % 6f;
+                return (int)Math.Round((v - v * s * Math.Max(0f, Math.Min(Math.Min(k, 4f - k), 1f))) * 255f);
+            };
+            return Color.FromArgb(f(5), f(3), f(1));
+        }
+
+        public static void ToHsv(Color c, out float h, out float s, out float v)
+        {
+            float r = c.R / 255f, g = c.G / 255f, b = c.B / 255f;
+            float max = Math.Max(r, Math.Max(g, b)), min = Math.Min(r, Math.Min(g, b)), d = max - min;
+            h = 0;
+            if (d > 0)
+            {
+                if (max == r) h = ((g - b) / d) % 6f;
+                else if (max == g) h = (b - r) / d + 2f;
+                else h = (r - g) / d + 4f;
+                h *= 60f;
+                if (h < 0) h += 360f;
+            }
+            s = max > 0 ? d / max : 0;
+            v = max;
+        }
 
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
