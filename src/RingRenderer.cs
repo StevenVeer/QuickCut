@@ -190,11 +190,106 @@ namespace QuickCut
         // gets the hover look plus a dashed outline, so it stands out from one that's merely hovered.
         public void Draw(Graphics g, Config cfg, Palette pal, int hover, int selected, bool shadow)
         {
+            DrawBackground(g, pal, shadow);
+            int n = cfg.Items.Count;
+            Layout L = GetLayout(g, n);
+            using (StringFormat sf = LabelFormat())
+            {
+                for (int i = 0; i < n; i++)
+                    DrawSegment(g, cfg, pal, L, sf, i, i == hover || i == selected, i == selected);
+                DrawCenter(g, cfg, pal, L, sf, hover == HitCenter || selected == HitCenter, selected == HitCenter);
+            }
+        }
+
+        // Turns a frame that holds the ring with nothing hovered (Draw with hover = HitNone) into the
+        // ring with `hover` lit, by redrawing only that button instead of all of them.
+        // Everything the button drew in its normal look is wiped back to the bare ring first. Labels
+        // can poke a little into a neighbour's wedge, so the neighbours are redrawn inside that area,
+        // in the same order as Draw: previous button, hovered button, next button.
+        public void DrawHover(Graphics g, Config cfg, Palette pal, int hover, bool shadow)
+        {
+            int n = cfg.Items.Count;
+            if (hover != HitCenter && (hover < 0 || hover >= n)) return;
+            Layout L = GetLayout(g, n);
+            using (StringFormat sf = LabelFormat())
+            using (Region area = HoverArea(L, hover))
+            {
+                // Same modes for every step: the pixel offset mode shifts which pixels a clip covers.
+                SetModes(g);
+                g.SetClip(area, CombineMode.Replace);
+                g.SmoothingMode = SmoothingMode.None;
+                g.CompositingMode = CompositingMode.SourceCopy;
+                // A rectangle through the clip, not FillRegion: that can disagree with the clip on edge pixels.
+                using (SolidBrush clear = new SolidBrush(Color.Transparent)) g.FillRectangle(clear, -1, -1, Size + 2, Height + 2);
+                g.CompositingMode = CompositingMode.SourceOver;
+                DrawBackground(g, pal, shadow);
+                if (hover == HitCenter)
+                {
+                    g.ResetClip();
+                    DrawCenter(g, cfg, pal, L, sf, true, false);
+                    return;
+                }
+                int prev = (hover + n - 1) % n, next = (hover + 1) % n;
+                if (n > 1) DrawSegment(g, cfg, pal, L, sf, prev, false, false);
+                g.ResetClip();
+                DrawSegment(g, cfg, pal, L, sf, hover, true, false);
+                if (n > 2)
+                {
+                    g.SetClip(area, CombineMode.Replace);
+                    DrawSegment(g, cfg, pal, L, sf, next, false, false);
+                    g.ResetClip();
+                }
+            }
+        }
+
+        // Every pixel a button can touch in its normal look: the center circle, or the button's wedge
+        // (from the gap around the center out to the edge of the image) plus its icon and label boxes.
+        Region HoverArea(Layout L, int hover)
+        {
+            float rs = (RCenter + RInner) / 2;
+            using (GraphicsPath inner = new GraphicsPath())
+            {
+                inner.AddEllipse(Cx - rs, Cy - rs, 2 * rs, 2 * rs);
+                if (hover == HitCenter) return new Region(inner);
+                Region r;
+                if (L.N == 1) r = new Region(new RectangleF(0, 0, Size, Size));
+                else
+                    using (GraphicsPath wedge = new GraphicsPath())
+                    {
+                        float big = Size; // a radius that reaches past every corner
+                        wedge.AddPie(Cx - big, Cy - big, 2 * big, 2 * big, -90 + hover * L.Sweep - L.Sweep / 2, L.Sweep);
+                        r = new Region(wedge);
+                    }
+                RectangleF ir, lr;
+                SegmentBoxes(L, hover, 0, out ir, out lr);
+                ir.Inflate(2, 2); lr.Inflate(2, 2);
+                r.Union(ir);
+                r.Union(lr);
+                r.Exclude(inner);
+                return r;
+            }
+        }
+
+        // Icon and label boxes of a button; grow moves them outwards with the "grow" hover style.
+        void SegmentBoxes(Layout L, int i, float grow, out RectangleF ir, out RectangleF lr)
+        {
+            double a = (-90 + i * L.Sweep) * Math.PI / 180;
+            float px = Cx + (float)Math.Cos(a) * (L.RMid + grow / 2), py = Cy + (float)Math.Sin(a) * (L.RMid + grow / 2);
+            ir = new RectangleF(px - L.IconSz / 2, py - L.Block / 2, L.IconSz, L.IconSz);
+            lr = new RectangleF(px - L.LabelW / 2, ir.Bottom + 3 * Sc, L.LabelW, L.Lh);
+        }
+
+        // Shadow and the empty ring the buttons sit on.
+        static void SetModes(Graphics g)
+        {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-            int n = cfg.Items.Count;
-            float sweep = n > 0 ? 360f / n : 360f;
+        }
+
+        void DrawBackground(Graphics g, Palette pal, bool shadow)
+        {
+            SetModes(g);
 
             if (shadow)
                 using (SolidBrush sh = new SolidBrush(Color.FromArgb(pal.Dark ? 16 : 10, 0, 0, 0)))
@@ -209,55 +304,68 @@ namespace QuickCut
                 g.FillPath(b, ring);
             using (Pen rim = new Pen(pal.Dark ? Color.FromArgb(45, 255, 255, 255) : Color.FromArgb(30, 0, 0, 0), Sc))
                 g.DrawEllipse(rim, Cx - ROuter, Cy - ROuter, 2 * ROuter, 2 * ROuter);
+        }
 
-            float ro = ROuter - 4 * Sc, ri = RInner + 4 * Sc;
-            float gapDeg = n > 1 ? (float)(5 * Sc / ((ro + ri) / 2) * 180 / Math.PI) : 0;
-            float rMid = (ROuter + RInner) / 2;
-            float iconSz = (n > 8 ? 24 : 30) * Sc;
-            float labelW = Math.Min(86 * Sc, n > 1 ? (float)(2 * rMid * Math.Sin(Math.PI / n)) - 6 * Sc : 86 * Sc);
-            float lh = labelFont.GetHeight(g) + 1;  // label box follows the font, so nothing gets clipped
-            float block = iconSz + 3 * Sc + lh;      // icon + label, centered on the segment
+        // Sizes shared by all buttons; they only depend on the number of buttons.
+        struct Layout { public int N; public float Sweep, GapDeg, Ro, Ri, RMid, IconSz, LabelW, Lh, Block; }
 
-            using (StringFormat sf = new StringFormat(StringFormatFlags.NoWrap))
+        Layout GetLayout(Graphics g, int n)
+        {
+            Layout L = new Layout();
+            L.N = n;
+            L.Sweep = n > 0 ? 360f / n : 360f;
+            L.Ro = ROuter - 4 * Sc;
+            L.Ri = RInner + 4 * Sc;
+            L.GapDeg = n > 1 ? (float)(5 * Sc / ((L.Ro + L.Ri) / 2) * 180 / Math.PI) : 0;
+            L.RMid = (ROuter + RInner) / 2;
+            L.IconSz = (n > 8 ? 24 : 30) * Sc;
+            L.LabelW = Math.Min(86 * Sc, n > 1 ? (float)(2 * L.RMid * Math.Sin(Math.PI / n)) - 6 * Sc : 86 * Sc);
+            L.Lh = labelFont.GetHeight(g) + 1;   // label box follows the font, so nothing gets clipped
+            L.Block = L.IconSz + 3 * Sc + L.Lh;  // icon + label, centered on the segment
+            return L;
+        }
+
+        static StringFormat LabelFormat()
+        {
+            StringFormat sf = new StringFormat(StringFormatFlags.NoWrap);
+            sf.Alignment = StringAlignment.Center;
+            sf.Trimming = StringTrimming.EllipsisCharacter;
+            return sf;
+        }
+
+        void DrawSegment(Graphics g, Config cfg, Palette pal, Layout L, StringFormat sf, int i, bool hot, bool selected)
+        {
+            RingItem it = cfg.Items[i];
+            Look l = GetLook(cfg, it, pal, hot);
+            float start = -90 + i * L.Sweep - L.Sweep / 2 + L.GapDeg / 2;
+            using (GraphicsPath p = L.N == 1 ? Art.Donut(Cx, Cy, L.Ro + l.Grow, L.Ri) : Art.Sector(Cx, Cy, L.Ro + l.Grow, L.Ri, start, L.Sweep - L.GapDeg))
             {
-                sf.Alignment = StringAlignment.Center;
-                sf.Trimming = StringTrimming.EllipsisCharacter;
-
-                for (int i = 0; i < n; i++)
-                {
-                    RingItem it = cfg.Items[i];
-                    Look l = GetLook(cfg, it, pal, i == hover || i == selected);
-                    float start = -90 + i * sweep - sweep / 2 + gapDeg / 2;
-                    using (GraphicsPath p = n == 1 ? Art.Donut(Cx, Cy, ro + l.Grow, ri) : Art.Sector(Cx, Cy, ro + l.Grow, ri, start, sweep - gapDeg))
-                    {
-                        using (SolidBrush b = new SolidBrush(l.Fill)) g.FillPath(b, p);
-                        Outline(g, p, pal, l.Outline, i == selected);
-                    }
-                    double a = (-90 + i * sweep) * Math.PI / 180;
-                    float px = Cx + (float)Math.Cos(a) * (rMid + l.Grow / 2), py = Cy + (float)Math.Sin(a) * (rMid + l.Grow / 2);
-                    RectangleF ir = new RectangleF(px - iconSz / 2, py - block / 2, iconSz, iconSz);
-                    Art.DrawItem(g, it, ir, l.Fg);
-                    RectangleF lr = new RectangleF(px - labelW / 2, ir.Bottom + 3 * Sc, labelW, lh);
-                    using (SolidBrush tb = new SolidBrush(l.Fg)) g.DrawString(it.Label, labelFont, tb, lr, sf);
-                }
-
-                // Center button
-                Look c = GetLook(cfg, cfg.Center, pal, hover == HitCenter || selected == HitCenter);
-                float rc = RCenter + c.Grow / 2;
-                using (GraphicsPath p = new GraphicsPath())
-                {
-                    p.AddEllipse(Cx - rc, Cy - rc, 2 * rc, 2 * rc);
-                    using (SolidBrush b = new SolidBrush(c.Fill)) g.FillPath(b, p);
-                    using (Pen rim = new Pen(pal.Dark ? Color.FromArgb(50, 255, 255, 255) : Color.FromArgb(35, 0, 0, 0), Sc))
-                        g.DrawPath(rim, p);
-                    Outline(g, p, pal, c.Outline, selected == HitCenter);
-                }
-                float gs = 34 * Sc;
-                RectangleF gr = new RectangleF(Cx - gs / 2, Cy - (gs + 3 * Sc + lh) / 2, gs, gs);
-                Art.DrawItem(g, cfg.Center, gr, c.Fg);
-                RectangleF clr = new RectangleF(Cx - RCenter + 6 * Sc, gr.Bottom + 3 * Sc, 2 * RCenter - 12 * Sc, lh);
-                using (SolidBrush tb = new SolidBrush(c.Fg)) g.DrawString(cfg.Center.Label, labelFont, tb, clr, sf);
+                using (SolidBrush b = new SolidBrush(l.Fill)) g.FillPath(b, p);
+                Outline(g, p, pal, l.Outline, selected);
             }
+            RectangleF ir, lr;
+            SegmentBoxes(L, i, l.Grow, out ir, out lr);
+            Art.DrawItem(g, it, ir, l.Fg);
+            using (SolidBrush tb = new SolidBrush(l.Fg)) g.DrawString(it.Label, labelFont, tb, lr, sf);
+        }
+
+        void DrawCenter(Graphics g, Config cfg, Palette pal, Layout L, StringFormat sf, bool hot, bool selected)
+        {
+            Look c = GetLook(cfg, cfg.Center, pal, hot);
+            float rc = RCenter + c.Grow / 2;
+            using (GraphicsPath p = new GraphicsPath())
+            {
+                p.AddEllipse(Cx - rc, Cy - rc, 2 * rc, 2 * rc);
+                using (SolidBrush b = new SolidBrush(c.Fill)) g.FillPath(b, p);
+                using (Pen rim = new Pen(pal.Dark ? Color.FromArgb(50, 255, 255, 255) : Color.FromArgb(35, 0, 0, 0), Sc))
+                    g.DrawPath(rim, p);
+                Outline(g, p, pal, c.Outline, selected);
+            }
+            float gs = 34 * Sc;
+            RectangleF gr = new RectangleF(Cx - gs / 2, Cy - (gs + 3 * Sc + L.Lh) / 2, gs, gs);
+            Art.DrawItem(g, cfg.Center, gr, c.Fg);
+            RectangleF clr = new RectangleF(Cx - RCenter + 6 * Sc, gr.Bottom + 3 * Sc, 2 * RCenter - 12 * Sc, L.Lh);
+            using (SolidBrush tb = new SolidBrush(c.Fg)) g.DrawString(cfg.Center.Label, labelFont, tb, clr, sf);
         }
 
         void Outline(Graphics g, GraphicsPath p, Palette pal, bool hoverOutline, bool selected)

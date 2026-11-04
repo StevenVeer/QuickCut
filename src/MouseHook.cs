@@ -2,20 +2,26 @@ using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace QuickCut
 {
     // Global low-level mouse hook. Only active when the "double right-click" trigger is on.
+    // Windows routes every mouse event in the system through the thread that owns the hook, so it
+    // runs on a thread of its own: when the UI thread is busy (drawing, starting a program, the
+    // settings window), the mouse never stutters and Windows never drops the hook for being slow.
     // The callback does almost nothing (a few comparisons) and hands real work to the UI thread.
     class MouseHook : IDisposable
     {
         const int WH_MOUSE_LL = 14;
         const int WM_LBUTTONDOWN = 0x201, WM_RBUTTONDOWN = 0x204, WM_RBUTTONUP = 0x205, WM_MBUTTONDOWN = 0x207;
-        const uint LLMHF_INJECTED = 1;
+        const uint LLMHF_INJECTED = 1, WM_QUIT = 0x12;
 
         [StructLayout(LayoutKind.Sequential)]
         struct MSLLHOOKSTRUCT { public Native.POINT pt; public uint mouseData, flags, time; public IntPtr extra; }
+        [StructLayout(LayoutKind.Sequential)]
+        struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public Native.POINT pt; }
         delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll")] static extern IntPtr SetWindowsHookEx(int id, HookProc proc, IntPtr mod, uint thread);
@@ -23,11 +29,17 @@ namespace QuickCut
         [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr w, IntPtr l);
         [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string name);
         [DllImport("user32.dll")] static extern uint GetDoubleClickTime();
+        [DllImport("user32.dll")] static extern int GetMessage(out MSG msg, IntPtr hWnd, uint min, uint max);
+        [DllImport("user32.dll")] static extern bool PeekMessage(out MSG msg, IntPtr hWnd, uint min, uint max, uint remove);
+        [DllImport("user32.dll")] static extern bool PostThreadMessage(uint thread, uint msg, IntPtr w, IntPtr l);
 
         readonly HookProc proc; // keep a reference so the GC doesn't collect the delegate
-        readonly IntPtr hook;
+        readonly Thread thread;
         readonly RingForm ring;
-        readonly Func<Point, bool> allowed; // may the ring open at this point?
+        readonly Func<Point, bool> allowed; // may the ring open at this point? Called on the hook thread.
+        IntPtr hook;
+        uint threadId;
+        // Only touched on the hook thread:
         uint lastDownTime;
         Point lastDownPt;
         bool swallowUp;
@@ -37,7 +49,28 @@ namespace QuickCut
             this.ring = ring;
             this.allowed = allowed;
             proc = Callback;
+            using (ManualResetEvent ready = new ManualResetEvent(false))
+            {
+                thread = new Thread(delegate() { Loop(ready); });
+                thread.Name = "QuickCut mouse hook";
+                thread.IsBackground = true;
+                thread.Priority = ThreadPriority.AboveNormal; // the system's mouse input waits on this thread
+                thread.Start();
+                ready.WaitOne();
+            }
+        }
+
+        void Loop(ManualResetEvent ready)
+        {
+            MSG m;
+            PeekMessage(out m, IntPtr.Zero, 0, 0, 0); // creates the message queue, so WM_QUIT can be posted
+            threadId = Native.GetCurrentThreadId();
             hook = SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(null), 0);
+            ready.Set();
+            if (hook == IntPtr.Zero) return;
+            // Windows calls the hook while this thread waits in GetMessage, so it just waits until told to quit.
+            while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) { }
+            UnhookWindowsHookEx(hook);
         }
 
         IntPtr Callback(int code, IntPtr wParam, IntPtr lParam)
@@ -65,7 +98,7 @@ namespace QuickCut
                 return true;
             }
 
-            if (ring.Visible)
+            if (ring.IsOpen)
             {
                 // Click outside the ring closes it, even if the ring never got focus.
                 if (!ring.ContainsScreenPoint(pt)) ring.BeginInvoke((Action)ring.HideRing);
@@ -104,7 +137,7 @@ namespace QuickCut
 
         public void Dispose()
         {
-            if (hook != IntPtr.Zero) UnhookWindowsHookEx(hook);
+            if (thread.IsAlive && PostThreadMessage(threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero)) thread.Join(1000);
         }
     }
 }

@@ -61,13 +61,16 @@ namespace QuickCut
         public static readonly uint ShowSettingsMsg = Native.RegisterWindowMessage("QuickCut.ShowSettings");
         const int HotkeyId = 1;
 
-        Config cfg;
+        volatile Config cfg; // also read by the mouse hook thread
         readonly NotifyIcon tray;
         readonly RingForm ring;
         readonly MessageWindow msgWin;
         SettingsForm settings;
         MouseHook mouseHook;
         string activeHotkey;
+        // Screen area of the settings window (a boxed Rectangle), or null while it isn't showing.
+        // A copy for the mouse hook thread, which must not touch the form itself.
+        volatile object settingsArea;
 
         public App()
         {
@@ -127,8 +130,8 @@ namespace QuickCut
                 {
                     // Not inside the settings window (right-clicks there are for text fields etc.),
                     // but everywhere else, so you can try your changes while settings stays open.
-                    bool overSettings = settings != null && settings.Visible && settings.WindowState != FormWindowState.Minimized
-                        && settings.Bounds.Contains(pt);
+                    object area = settingsArea;
+                    bool overSettings = area != null && ((System.Drawing.Rectangle)area).Contains(pt);
                     return !overSettings && !(cfg.SkipFullscreen && MouseHook.ForegroundIsFullscreen());
                 });
             else if (!cfg.MouseTrigger && mouseHook != null)
@@ -185,11 +188,22 @@ namespace QuickCut
             if (settings == null)
             {
                 settings = new SettingsForm(this, cfg);
-                settings.FormClosed += delegate { settings.Dispose(); settings = null; ResumeHotkey(); };
+                EventHandler track = delegate { UpdateSettingsArea(); };
+                settings.Move += track;
+                settings.Resize += track;
+                settings.VisibleChanged += track;
+                settings.FormClosed += delegate { settings.Dispose(); settings = null; UpdateSettingsArea(); ResumeHotkey(); };
                 settings.Show();
             }
             if (settings.WindowState == FormWindowState.Minimized) settings.WindowState = FormWindowState.Normal;
             settings.Activate();
+            UpdateSettingsArea();
+        }
+
+        void UpdateSettingsArea()
+        {
+            settingsArea = settings != null && settings.Visible && settings.WindowState != FormWindowState.Minimized
+                ? (object)settings.Bounds : null;
         }
 
         public void Notify(string text, bool warning)

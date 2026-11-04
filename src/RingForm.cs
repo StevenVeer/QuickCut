@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Threading;
 using System.Windows.Forms;
@@ -19,7 +20,7 @@ namespace QuickCut
         float dpi; // scale of the monitor the ring was last shown on
         RingRenderer rr;
         int size, height; // height includes the volume panel when it's shown
-        readonly System.Windows.Forms.Timer fadeTimer, holdTimer, repeatTimer;
+        readonly System.Windows.Forms.Timer fadeTimer, holdTimer, repeatTimer, warmTimer;
         int volHover = RingRenderer.VolNone;
         int repeatDir;      // -1 / +1 while - or + is held down
         bool volPressed;    // the current mouse press started on the volume panel
@@ -27,6 +28,11 @@ namespace QuickCut
         bool holding, moved;
         int openHover;
         Bitmap frame;
+        // The ring with nothing hovered. Each redraw starts from a copy and only draws the hovered button.
+        Bitmap baseLayer;
+        string baseKey; // the theme it was drawn for
+        // Where the open ring is on screen, for the mouse hook thread; null while it's closed.
+        volatile HitArea area;
         int hover = HitNone;
         byte alpha = 255;
         IntPtr prevWindow;
@@ -64,7 +70,37 @@ namespace QuickCut
             // Holding - or + keeps stepping: a pause first, then a steady pace.
             repeatTimer = new System.Windows.Forms.Timer();
             repeatTimer.Tick += delegate { repeatTimer.Interval = 140; StepVolume(repeatDir); };
+            // Shortly after startup (once the launch notice is gone) and after settings changes.
+            warmTimer = new System.Windows.Forms.Timer();
+            warmTimer.Tick += delegate { warmTimer.Stop(); WarmUp(); };
+            ScheduleWarmUp(3500);
             IntPtr h = Handle; // create the window now so the first show is instant
+        }
+
+        sealed class HitArea
+        {
+            public readonly RingRenderer R; public readonly int X, Y;
+            public HitArea(RingRenderer r, int x, int y) { R = r; X = x; Y = y; }
+        }
+
+        void ScheduleWarmUp(int ms)
+        {
+            warmTimer.Stop();
+            warmTimer.Interval = ms;
+            warmTimer.Start();
+        }
+
+        // Does the slow first-time work ahead of time, so even the first open is instant: loads the
+        // program icons, draws the base layer and runs every drawing path once (which also compiles it).
+        void WarmUp()
+        {
+            if (Visible) return;
+            try
+            {
+                pal = Palette.Get(cfg);
+                Compose(HitCenter);
+            }
+            catch { } // only a head start; the real draw handles any problem
         }
 
         protected override CreateParams CreateParams
@@ -82,7 +118,14 @@ namespace QuickCut
             bool resized = c.SizeFactor != cfg.SizeFactor || c.VolumeBar != cfg.VolumeBar;
             cfg = c;
             Art.ClearIconCache();
+            DropBaseLayer();
             if (resized) { HideRing(); RebuildRenderer(); }
+            ScheduleWarmUp(500);
+        }
+
+        void DropBaseLayer()
+        {
+            if (baseLayer != null) { baseLayer.Dispose(); baseLayer = null; }
         }
 
         // (Re)creates the renderer for the DPI and the chosen ring size.
@@ -93,6 +136,7 @@ namespace QuickCut
             size = rr.Size;
             height = rr.Height;
             if (frame != null) { frame.Dispose(); frame = null; }
+            DropBaseLayer();
             Size = new Size(size, height);
         }
 
@@ -118,7 +162,9 @@ namespace QuickCut
             holding = hold != HoldNone;
             moved = false;
             alpha = 60;
+            warmTimer.Stop();
             Render();
+            area = new HitArea(rr, x, y);
             Show();
             TakeFocus();
             fadeTimer.Start();
@@ -156,13 +202,18 @@ namespace QuickCut
             repeatTimer.Stop();
             holding = false;
             volPressed = false;
+            area = null;
             if (Visible) Hide();
             hover = HitNone;
         }
 
+        // These two are called from the mouse hook thread, so they only read the HitArea snapshot.
+        public bool IsOpen { get { return area != null; } }
+
         public bool ContainsScreenPoint(Point p)
         {
-            return rr.Contains(new PointF(p.X - Left, p.Y - Top));
+            HitArea a = area;
+            return a != null && a.R.Contains(new PointF(p.X - a.X, p.Y - a.Y));
         }
 
         // ---------- input ----------
@@ -315,11 +366,29 @@ namespace QuickCut
 
         void Render()
         {
+            Compose(hover);
+            Apply();
+        }
+
+        // Draws the ring with `h` hovered into frame: a copy of the base layer plus that one button.
+        void Compose(int h)
+        {
+            string key = pal.Dark + ":" + pal.Accent.ToArgb();
+            if (baseLayer == null || baseKey != key)
+            {
+                DropBaseLayer();
+                baseLayer = new Bitmap(size, height, PixelFormat.Format32bppArgb);
+                using (Graphics g = Graphics.FromImage(baseLayer))
+                    rr.Draw(g, cfg, pal, HitNone, HitNone, true);
+                baseKey = key;
+            }
             if (frame == null) frame = new Bitmap(size, height, PixelFormat.Format32bppArgb);
             using (Graphics g = Graphics.FromImage(frame))
             {
-                g.Clear(Color.Transparent);
-                rr.Draw(g, cfg, pal, hover, HitNone, true);
+                g.CompositingMode = CompositingMode.SourceCopy;
+                g.DrawImageUnscaled(baseLayer, 0, 0);
+                g.CompositingMode = CompositingMode.SourceOver;
+                rr.DrawHover(g, cfg, pal, h, true);
                 if (rr.VolumeBar)
                 {
                     float level; bool muted;
@@ -327,7 +396,6 @@ namespace QuickCut
                     rr.DrawVolume(g, cfg, pal, volHover, ok, level, muted);
                 }
             }
-            Apply();
         }
 
         void Apply()
@@ -379,8 +447,10 @@ namespace QuickCut
                 fadeTimer.Dispose();
                 holdTimer.Dispose();
                 repeatTimer.Dispose();
+                warmTimer.Dispose();
                 rr.Dispose();
                 if (frame != null) frame.Dispose();
+                DropBaseLayer();
             }
             base.Dispose(disposing);
         }
