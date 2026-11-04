@@ -71,6 +71,7 @@ namespace QuickCut
         public App()
         {
             Instance = this;
+            Autostart.Repair();
             bool firstRun;
             cfg = Config.Load(out firstRun);
             ring = new RingForm(cfg);
@@ -220,23 +221,60 @@ namespace QuickCut
         }
     }
 
+    // Windows only launches a Run entry at login when Explorer's StartupApproved list marks it as
+    // enabled (first byte 0x02; 0x03 = disabled in Task Manager). Newer Windows builds skip entries
+    // that are missing from that list, so both values have to be written.
     static class Autostart
     {
+        const string Name = "QuickCut";
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        const string ApprovedKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
+        static string Command { get { return "\"" + Application.ExecutablePath + "\""; } }
 
         public static bool IsEnabled()
         {
             using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey))
-                return k != null && k.GetValue("QuickCut") != null;
+                if (k == null || k.GetValue(Name) == null) return false;
+            byte[] state = ApprovedState();
+            return state == null || state.Length == 0 || (state[0] & 1) == 0; // odd = disabled
         }
 
         public static void Set(bool on)
         {
             using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RunKey))
             {
-                if (on) k.SetValue("QuickCut", "\"" + Application.ExecutablePath + "\"");
-                else k.DeleteValue("QuickCut", false);
+                if (on) k.SetValue(Name, Command);
+                else k.DeleteValue(Name, false);
             }
+            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(ApprovedKey))
+            {
+                if (on) k.SetValue(Name, new byte[12] { 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, RegistryValueKind.Binary);
+                else k.DeleteValue(Name, false);
+            }
+        }
+
+        // Called at launch: if autostart is on, keep the path current (the exe may have moved) and
+        // add the missing approval. Never overrides a "disabled" the user set in Task Manager.
+        public static void Repair()
+        {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                {
+                    if (k == null || k.GetValue(Name) == null) return;
+                    if (!string.Equals(k.GetValue(Name) as string, Command, StringComparison.OrdinalIgnoreCase))
+                        k.SetValue(Name, Command);
+                }
+                if (ApprovedState() == null) Set(true);
+            }
+            catch { } // registry not writable: nothing useful to do
+        }
+
+        static byte[] ApprovedState()
+        {
+            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(ApprovedKey))
+                return k == null ? null : k.GetValue(Name) as byte[];
         }
     }
 
