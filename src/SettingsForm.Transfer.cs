@@ -24,7 +24,7 @@ namespace QuickCut
                     new ToolStripMenuItem(Str.ExportMenu, null, delegate { ExportSettings(); }),
                     new ToolStripMenuItem(Str.ImportMenu, null, delegate { ImportSettings(); }) })
                 {
-                    it.Padding = new Padding(S(6), S(7), S(18), S(7));
+                    it.Padding = new Padding(S(12), S(7), S(12), S(7));
                     transferMenu.Items.Add(it);
                 }
                 transferMenu.HandleCreated += delegate { MenuRenderer.RoundCorners(transferMenu); };
@@ -70,22 +70,29 @@ namespace QuickCut
                     e.Graphics.DrawRectangle(p, 0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1);
             }
 
+            // The hover highlight and the text, centered in the menu. A menu item can be wider than the menu
+            // shows (it keeps room for icons and arrows) and ignores TextAlign, so both are placed against
+            // the menu's visible width, in the item's own coordinates, and the base text step is skipped.
             protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
             {
-                if (!e.Item.Selected || !e.Item.Enabled) return;
                 Graphics g = e.Graphics;
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                RectangleF r = new RectangleF(1, 1, e.Item.Width - 2, e.Item.Height - 2);
-                using (GraphicsPath p = ThemedControl.Round(r, 5 * sc))
-                using (SolidBrush b = new SolidBrush(pal.Hover))
-                    g.FillPath(b, p);
+                ToolStrip menu = e.Item.Owner;
+                int left = menu.Padding.Left - e.Item.Bounds.X;
+                Rectangle area = new Rectangle(left, 0, menu.Width - menu.Padding.Horizontal, e.Item.Height);
+                if (e.Item.Selected && e.Item.Enabled)
+                {
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    RectangleF r = new RectangleF(area.X, 1, area.Width, area.Height - 2);
+                    using (GraphicsPath p = ThemedControl.Round(r, 5 * sc))
+                    using (SolidBrush b = new SolidBrush(pal.Hover))
+                        g.FillPath(b, p);
+                }
+                TextRenderer.DrawText(g, e.Item.Text, e.Item.Font, area,
+                    e.Item.Enabled ? pal.Text : pal.Muted,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
             }
 
-            protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
-            {
-                e.TextColor = e.Item.Enabled ? pal.Text : pal.Muted;
-                base.OnRenderItemText(e);
-            }
+            protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) { } // drawn above
         }
 
         void ExportSettings()
