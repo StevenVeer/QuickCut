@@ -678,6 +678,22 @@ namespace QuickCut
             lblStatus.ForeColor = tag == "danger" ? pal.Danger : pal.Muted;
         }
 
+        // The shortcut box turns the global hotkey off while it records (Enter/Leave above), but
+        // Leave doesn't fire when you switch to another app with the box still focused. So the
+        // hotkey comes back whenever this window isn't active, and goes off again when you return
+        // to the box. ActiveControl still points at the box while the window is in the background.
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+            if (app != null && ActiveControl == hotkeyBox) app.SuspendHotkey();
+        }
+
+        protected override void OnDeactivate(EventArgs e)
+        {
+            base.OnDeactivate(e);
+            if (app != null) app.ResumeHotkey();
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (commitTimer.Enabled) Commit();
