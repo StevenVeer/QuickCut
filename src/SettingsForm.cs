@@ -18,6 +18,7 @@ namespace QuickCut
         readonly float sc;
         readonly Timer commitTimer;
         readonly UserPreferenceChangedEventHandler prefChanged;
+        readonly Icon windowIcon; // a Form doesn't dispose its Icon, so the window does it itself
         Palette pal;
         bool loading;
 
@@ -68,7 +69,7 @@ namespace QuickCut
             Rectangle wa = Screen.FromPoint(m).WorkingArea;
             StartPosition = FormStartPosition.Manual;
             Location = new Point(wa.X + Math.Max(0, (wa.Width - Width) / 2), wa.Y + Math.Max(0, (wa.Height - Height) / 2));
-            Icon = Art.CreateIcon(32);
+            Icon = windowIcon = Art.CreateIcon(32);
 
             Label title = AddLabel(this, "QuickCut", 22, 18, 110, 30, null);
             title.Font = F("Segoe UI Semibold", 13f);
@@ -688,6 +689,13 @@ namespace QuickCut
             SystemEvents.UserPreferenceChanged -= prefChanged;
             commitTimer.Dispose();
             base.OnFormClosed(e);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            // After the window is gone, so it never shows a freed icon.
+            if (disposing && windowIcon != null) windowIcon.Dispose();
         }
 
         // Draws the window with default buttons into a PNG (used to check the design), off screen.

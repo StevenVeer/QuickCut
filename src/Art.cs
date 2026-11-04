@@ -283,9 +283,16 @@ namespace QuickCut
             return b;
         }
 
+        // The caller owns the icon and should dispose it. An Icon from FromHandle never frees its
+        // handle, so return a copy that does and free the original handle right away.
         public static Icon CreateIcon(int size)
         {
-            using (Bitmap b = RenderAppIcon(size)) return Icon.FromHandle(b.GetHicon());
+            using (Bitmap b = RenderAppIcon(size))
+            {
+                IntPtr h = b.GetHicon();
+                try { using (Icon tmp = Icon.FromHandle(h)) return (Icon)tmp.Clone(); }
+                finally { Native.DestroyIcon(h); }
+            }
         }
 
         // Writes the logo PNGs for the Store package (see build-store.cmd). File names use MSIX
