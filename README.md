@@ -23,6 +23,20 @@ build.cmd
 
 This creates `QuickCut.exe` in the project folder.
 
+### Running the tests
+
+```
+test.cmd
+```
+
+This builds `build\tests.exe` from `tests\*.cs` plus the app's own `src\*.cs` (same compiler, nothing
+to install) and runs it. It exits with an error when a check fails. The tests only cover pure code
+(key combos, saving buttons, volume steps, ring hit-testing, helpers): they never touch your
+`config.ini`, send keys, change the volume or start apps.
+
+Bugs that aren't fixed yet are listed as `KNOWN` and don't fail the run. Once one is fixed it shows
+as `FIXED`: move it out of the known-bugs group in `tests\Tests.cs` into a normal check.
+
 ### Microsoft Store package
 
 ```
