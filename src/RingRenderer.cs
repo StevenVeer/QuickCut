@@ -12,24 +12,35 @@ namespace QuickCut
 
         // Volume panel hits (HitVolume); a value >= 0 is the index of a block.
         public const int VolNone = -1, VolDown = -2, VolUp = -3, VolPanel = -4;
-        public const float PanelExtra = 56; // unscaled height the volume panel adds below the ring
+        public const float PanelExtra = 56; // unscaled height each panel (volume, media) adds below the ring
+
+        // Media panel hits (HitMedia).
+        public const int MedNone = -1, MedPanel = -2, MedPrev = -3, MedPlay = -4, MedNext = -5;
 
         public readonly float Sc;
         public readonly int Size;   // width, and the height of the ring part
-        public readonly int Height; // Size plus the volume panel, when shown
-        public readonly bool VolumeBar;
+        public readonly int Height; // Size plus the panels that are turned on
+        public readonly bool VolumeBar, MediaBar;
         public readonly float Cx, Cy, ROuter, RInner, RCenter;
-        readonly Font labelFont;
+        readonly Font labelFont, panelFont, smallFont;
 
-        public RingRenderer(float scale) : this(scale, 1f, false) { }
+        // The media panel only shows (and takes clicks) while something is playing.
+        public bool MediaShown;
+
+        public RingRenderer(float scale) : this(scale, 1f, false, false, 0) { }
+
+        public RingRenderer(float scale, float sizeFactor, bool volumeBar, bool mediaBar) : this(scale, sizeFactor, volumeBar, mediaBar, 0) { }
 
         // sizeFactor: the chosen ring size (Small = 0.8), already included in scale.
-        public RingRenderer(float scale, float sizeFactor, bool volumeBar)
+        // minPanelText: the smallest scale for the panels' text (the settings preview draws the ring small,
+        // but its panel text should stay readable); 0 = no minimum.
+        public RingRenderer(float scale, float sizeFactor, bool volumeBar, bool mediaBar, float minPanelText)
         {
             Sc = scale;
             Size = (int)Math.Round(320 * scale);
             VolumeBar = volumeBar;
-            Height = volumeBar ? (int)Math.Round((320 + PanelExtra) * scale) : Size;
+            MediaBar = mediaBar;
+            Height = (int)Math.Round((320 + (volumeBar ? PanelExtra : 0) + (mediaBar ? PanelExtra : 0)) * scale);
             Cx = Cy = Size / 2f;
             ROuter = 148 * scale;
             bool small = sizeFactor < 1f;
@@ -39,6 +50,15 @@ namespace QuickCut
             RCenter = (small ? 59 : 57) * scale;
             float textScale = small ? scale / sizeFactor * 0.92f : scale;
             labelFont = new Font("Segoe UI", 11.5f * textScale, GraphicsUnit.Pixel);
+            float panelScale = Math.Max(textScale, minPanelText);
+            panelFont = new Font("Segoe UI Semibold", 12f * panelScale, GraphicsUnit.Pixel);
+            smallFont = new Font("Segoe UI", 11.5f * panelScale, GraphicsUnit.Pixel);
+        }
+
+        // Unscaled panel height + gap, for sizing the settings preview.
+        public static float PanelsExtra(bool volumeBar, bool mediaBar)
+        {
+            return (volumeBar ? PanelExtra : 0) + (mediaBar ? PanelExtra : 0);
         }
 
         // directional: only the angle matters (used while holding the trigger).
@@ -57,7 +77,8 @@ namespace QuickCut
         public bool Contains(PointF p)
         {
             float dx = p.X - Cx, dy = p.Y - Cy;
-            return dx * dx + dy * dy <= ROuter * ROuter || (VolumeBar && PanelRect.Contains(p));
+            return dx * dx + dy * dy <= ROuter * ROuter || (VolumeBar && PanelRect.Contains(p))
+                || (MediaBar && MediaShown && MediaRect.Contains(p));
         }
 
         // ---------- volume panel ----------
@@ -101,7 +122,8 @@ namespace QuickCut
             RectangleF pr = PanelRect;
             using (GraphicsPath p = ThemedControl.Round(pr, 12 * Sc))
             {
-                using (SolidBrush b = new SolidBrush(Color.FromArgb(245, pal.Ring))) g.FillPath(b, p);
+                // Fully opaque, so the text on it can use sharp ClearType (see PanelText).
+                using (SolidBrush b = new SolidBrush(pal.Ring)) g.FillPath(b, p);
                 using (Pen rim = new Pen(pal.Dark ? Color.FromArgb(45, 255, 255, 255) : Color.FromArgb(30, 0, 0, 0), Sc)) g.DrawPath(rim, p);
             }
 
@@ -144,9 +166,251 @@ namespace QuickCut
 
             string text = !available ? Str.VolumeUnavailable : muted ? Str.VolumeMuted
                 : string.Format(Str.VolumeLevel, (int)Math.Round(level * 100));
+            g.TextRenderingHint = PanelText;
             using (StringFormat sf = new StringFormat(StringFormatFlags.NoWrap) { Alignment = StringAlignment.Center })
             using (SolidBrush tb = new SolidBrush(muted || !available ? pal.Muted : pal.Text))
-                g.DrawString(text, labelFont, tb, new RectangleF(x0, pr.Top + 4 * Sc, 172 * Sc, labelFont.GetHeight(g) + 1), sf);
+            {
+                // Centered in the space above the blocks; the font may be larger than Sc says (preview).
+                float fh = panelFont.GetHeight(g) + 1, top = Math.Max(pr.Top + 1 * Sc, pr.Top + 12 * Sc - fh / 2);
+                g.DrawString(text, panelFont, tb, new RectangleF(x0 - 20 * Sc, top, 212 * Sc, fh), sf);
+            }
+        }
+
+        // Panel text uses ClearType, like normal Windows text: much sharper than the grey smoothing a
+        // see-through window gets. That only works on opaque pixels, so the panels are drawn fully opaque.
+        const TextRenderingHint PanelText = TextRenderingHint.ClearTypeGridFit;
+
+        // ---------- media panel ----------
+
+        // Right under the volume panel, or in its place when volume is off.
+        RectangleF MediaRect
+        {
+            get { return new RectangleF(Cx - 134 * Sc, Size + 2 * Sc + (VolumeBar ? PanelExtra * Sc : 0), 268 * Sc, 50 * Sc); }
+        }
+
+        PointF MediaBtnAt(int which) // 0 prev, 1 play/pause, 2 next
+        {
+            RectangleF r = MediaRect;
+            return new PointF(r.Right - (86 - which * 30) * Sc, r.Top + 25 * Sc);
+        }
+
+        public int HitMedia(PointF p)
+        {
+            if (!MediaBar || !MediaShown || !MediaRect.Contains(p)) return MedNone;
+            for (int i = 0; i < 3; i++)
+                if (Dist(p, MediaBtnAt(i)) <= 15 * Sc) return i == 0 ? MedPrev : i == 1 ? MedPlay : MedNext;
+            return MedPanel;
+        }
+
+        // info: null draws nothing (in the ring) or a placeholder (placeholder = true, settings preview).
+        public void DrawMedia(Graphics g, Config cfg, Palette pal, int hot, MediaInfo info, bool placeholder)
+        {
+            TitleScrolls = false;
+            if (!MediaBar || (info == null && !placeholder)) return;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = PanelText;
+            RectangleF pr = MediaRect;
+            using (GraphicsPath p = ThemedControl.Round(pr, 12 * Sc))
+            {
+                using (SolidBrush b = new SolidBrush(pal.Ring)) g.FillPath(b, p); // opaque: see PanelText
+                using (Pen rim = new Pen(pal.Dark ? Color.FromArgb(45, 255, 255, 255) : Color.FromArgb(30, 0, 0, 0), Sc)) g.DrawPath(rim, p);
+            }
+
+            // Cover art, or a note on a plain tile
+            RectangleF tr = new RectangleF(pr.Left + 7 * Sc, pr.Top + 7 * Sc, 36 * Sc, 36 * Sc);
+            using (GraphicsPath tp = ThemedControl.Round(tr, 7 * Sc))
+            {
+                if (info != null && info.Thumb != null)
+                {
+                    GraphicsState st = g.Save();
+                    g.SetClip(tp);
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.DrawImage(info.Thumb, tr);
+                    g.Restore(st);
+                }
+                else
+                {
+                    using (SolidBrush b = new SolidBrush(Theme.Mix(pal.Ring, pal.Text, pal.Dark ? 0.16f : 0.12f))) g.FillPath(b, tp);
+                    DrawNote(g, tr, pal.Muted);
+                }
+            }
+
+            // Title and artist (or the app's name)
+            // Whole pixels, so the scrolling title and its fade line up exactly at every ring size.
+            float tx = (float)Math.Round(tr.Right + 9 * Sc), tw = (float)Math.Floor(MediaBtnAt(0).X - 19 * Sc - tx);
+            string title = info != null ? info.Title : Str.NothingPlaying;
+            string sub = info == null ? "" : info.Artist.Length > 0 ? info.Artist : info.App;
+            using (StringFormat sf = new StringFormat(StringFormatFlags.NoWrap) { Trimming = StringTrimming.EllipsisCharacter })
+            {
+                float lh = panelFont.GetHeight(g), sh = smallFont.GetHeight(g);
+                float ty = sub.Length > 0 ? pr.Top + 25 * Sc - (lh + sh) / 2 : pr.Top + 25 * Sc - lh / 2;
+                using (SolidBrush tb = new SolidBrush(info != null ? pal.Text : pal.Muted))
+                {
+                    float full = g.MeasureString(title, panelFont, PointF.Empty, StringFormat.GenericTypographic).Width;
+                    TitleScrolls = Animate && info != null && full > tw;
+                    // A long title is drawn the same way scrolling or not, so it doesn't jump when it starts.
+                    if (full > tw) DrawLongTitle(g, title, tb, pal, new RectangleF(tx, ty, tw, lh + 1), full, TitleScrolls);
+                    else g.DrawString(title, panelFont, tb, tx, ty, StringFormat.GenericTypographic);
+                }
+                // The second line in a softer tone, but stronger than Muted so it stays readable.
+                if (sub.Length > 0)
+                    using (SolidBrush mb = new SolidBrush(Theme.Mix(pal.Text, pal.Ring, 0.3f)))
+                        g.DrawString(sub, smallFont, mb, new RectangleF(tx, ty + lh, tw, sh + 1), sf);
+            }
+
+            // Previous, play/pause, next
+            Color? custom = Theme.ParseHex(cfg.ButtonColor);
+            Color btn = custom.HasValue ? custom.Value : pal.Button;
+            for (int i = 0; i < 3; i++)
+            {
+                PointF c = MediaBtnAt(i);
+                int code = i == 0 ? MedPrev : i == 1 ? MedPlay : MedNext;
+                Color fill = hot == code ? pal.Accent : btn;
+                float r = (i == 1 ? 14 : 12.5f) * Sc;
+                using (SolidBrush b = new SolidBrush(fill)) g.FillEllipse(b, c.X - r, c.Y - r, 2 * r, 2 * r);
+                using (Pen rim = new Pen(pal.Dark ? Color.FromArgb(50, 255, 255, 255) : Color.FromArgb(35, 0, 0, 0), Sc))
+                    g.DrawEllipse(rim, c.X - r, c.Y - r, 2 * r, 2 * r);
+                Color fg = info == null ? Color.FromArgb(120, Theme.TextOn(fill)) : Theme.TextOn(fill);
+                if (i == 1) DrawPlayPause(g, c, info != null && info.Playing, fg);
+                else DrawSkip(g, c, i == 2, fg);
+            }
+        }
+
+        // ---------- scrolling title ----------
+
+        // Animate: scroll a title that doesn't fit (the ring sets it while the mouse is over the panel);
+        // otherwise it's cut off with "…".
+        public bool Animate;
+        // True after DrawMedia when the title is scrolling, so the window keeps redrawing.
+        public bool TitleScrolls;
+        string scrollTitle;
+        int scrollFrame;
+
+        // Starts the title from the beginning (the mouse came onto the panel).
+        public void ResetScroll() { scrollTitle = null; scrollFrame = 0; }
+
+        // One animation frame passed (the ring's scroll timer, ~64 per second). Counting frames instead
+        // of reading the clock makes every step the same size, so the motion is even.
+        public void ScrollTick() { scrollFrame++; }
+
+        // A title too long for its space. Still: the start, with "…". Scrolling: a short rest, slide to the
+        // end, rest, slide back (faster), repeat. The "…" stays on the right while letters are hidden there.
+        void DrawLongTitle(Graphics g, string title, Brush tb, Palette pal, RectangleF r, float full, bool scrolling)
+        {
+            const string dots = "…";
+            float dotsW = g.MeasureString(dots, panelFont, PointF.Empty, StringFormat.GenericTypographic).Width + 1 * Sc;
+            float maxOff = full - r.Width;   // here the last letter reaches the right edge
+            float off = 0;
+            if (scrolling)
+            {
+                if (title != scrollTitle) { scrollTitle = title; scrollFrame = 0; }
+                // In frames (~64 per second): rest, forward one even step every 2 frames, rest, back 4x as fast.
+                const int restStart = 38, restEnd = 77;
+                int step = Math.Max(1, (int)Math.Round(Sc)); // whole pixels: no shimmer
+                int dist = (int)Math.Ceiling(maxOff);
+                int fwd = 2 * ((dist + step - 1) / step), back = (dist + 2 * step - 1) / (2 * step);
+                int f = scrollFrame % (restStart + fwd + restEnd + back);
+                if (f < restStart) off = 0;
+                else if ((f -= restStart) < fwd) off = (f / 2) * step;
+                else if ((f -= fwd) < restEnd) off = dist;
+                else off = dist - (f - restEnd) * 2 * step;
+                off = Math.Max(0, Math.Min(dist, off));
+            }
+            // On the right only whole letters show, then "…" right after the last one, like normal cut-off
+            // text. A letter appears once it fits completely; at the end the dots go and every letter shows.
+            float[] ends = LetterEnds(g, title);
+            int shown = title.Length;
+            if (off < maxOff)
+            {
+                float room = r.Width - dotsW + off;
+                while (shown > 0 && ends[shown - 1] > room) shown--;
+                while (shown > 0 && char.IsWhiteSpace(title[shown - 1])) shown--; // no "word …"
+            }
+
+            GraphicsState st = g.Save();
+            g.SetClip(r);
+            g.DrawString(title.Substring(0, shown), panelFont, tb, r.X - off, r.Y, StringFormat.GenericTypographic);
+            if (shown < title.Length)
+                g.DrawString(dots, panelFont, tb, r.X - off + (shown > 0 ? ends[shown - 1] : 0), r.Y, StringFormat.GenericTypographic);
+            // On the left, letters fade out as they scroll away.
+            if (off > 0)
+            {
+                // Whole pixels, and the gradient must not repeat past its ends (that showed as a flickering line).
+                int fx = (int)Math.Round(r.X), fw = Math.Max(4, (int)Math.Round(8 * Sc));
+                int fy = (int)Math.Floor(r.Y), fh = (int)Math.Ceiling(r.Bottom) - fy;
+                g.PixelOffsetMode = PixelOffsetMode.Half;
+                using (LinearGradientBrush lb = new LinearGradientBrush(new Rectangle(fx, fy, fw, fh), pal.Ring, Color.FromArgb(0, pal.Ring), 0f))
+                {
+                    lb.WrapMode = WrapMode.TileFlipX;
+                    g.FillRectangle(lb, fx, fy, fw, fh);
+                }
+            }
+            g.Restore(st);
+        }
+
+        // Where each letter of the title ends, measured once per title.
+        string endsTitle;
+        float[] endsCache;
+
+        float[] LetterEnds(Graphics g, string title)
+        {
+            if (title == endsTitle) return endsCache;
+            float[] ends = new float[title.Length];
+            using (StringFormat sf = new StringFormat(StringFormat.GenericTypographic))
+            {
+                sf.FormatFlags |= StringFormatFlags.MeasureTrailingSpaces | StringFormatFlags.NoWrap;
+                for (int i = 0; i < title.Length; i++)
+                    ends[i] = g.MeasureString(title.Substring(0, i + 1), panelFont, PointF.Empty, sf).Width;
+            }
+            endsTitle = title;
+            endsCache = ends;
+            return ends;
+        }
+
+        void DrawPlayPause(Graphics g, PointF c, bool playing, Color fg)
+        {
+            using (SolidBrush b = new SolidBrush(fg))
+            {
+                if (playing)
+                {
+                    float w = 2.8f * Sc, h = 10 * Sc, sp = 2.2f * Sc;
+                    g.FillRectangle(b, c.X - sp - w, c.Y - h / 2, w, h);
+                    g.FillRectangle(b, c.X + sp, c.Y - h / 2, w, h);
+                }
+                else
+                {
+                    float h = 11 * Sc, w = 9.5f * Sc, x = c.X - w / 2 + 1.2f * Sc;
+                    g.FillPolygon(b, new[] { new PointF(x, c.Y - h / 2), new PointF(x + w, c.Y), new PointF(x, c.Y + h / 2) });
+                }
+            }
+        }
+
+        // A triangle and a bar: |◀ or ▶|
+        void DrawSkip(Graphics g, PointF c, bool next, Color fg)
+        {
+            float h = 9 * Sc, w = 7 * Sc, bar = 2 * Sc;
+            float d = next ? 1 : -1;
+            float tipX = c.X + d * (w / 2), baseX = c.X - d * (w / 2);
+            using (SolidBrush b = new SolidBrush(fg))
+            {
+                g.FillPolygon(b, new[] { new PointF(baseX - d * Sc, c.Y - h / 2), new PointF(tipX - d * Sc, c.Y), new PointF(baseX - d * Sc, c.Y + h / 2) });
+                float bx = next ? tipX - Sc : tipX + Sc - bar;
+                g.FillRectangle(b, bx, c.Y - h / 2, bar, h);
+            }
+        }
+
+        void DrawNote(Graphics g, RectangleF r, Color fg)
+        {
+            float cx = r.X + r.Width / 2, cy = r.Y + r.Height / 2;
+            using (SolidBrush b = new SolidBrush(fg))
+            using (Pen pen = new Pen(fg, 1.8f * Sc))
+            {
+                float hr = 3.6f * Sc;
+                g.FillEllipse(b, cx - 4 * Sc - hr, cy + 5 * Sc - hr * 0.8f, 2 * hr, 1.6f * hr);
+                float stemX = cx - 4 * Sc + hr - 0.9f * Sc;
+                g.DrawLine(pen, stemX, cy + 5 * Sc, stemX, cy - 8 * Sc);
+                g.DrawLine(pen, stemX, cy - 8 * Sc, cx + 6 * Sc, cy - 5 * Sc);
+            }
         }
 
         public static Color ButtonColor(Config cfg, RingItem it, Palette pal)
@@ -268,6 +532,6 @@ namespace QuickCut
                 using (Pen pen = new Pen(pal.Text, 2 * Sc) { DashStyle = DashStyle.Dash }) g.DrawPath(pen, p);
         }
 
-        public void Dispose() { labelFont.Dispose(); }
+        public void Dispose() { labelFont.Dispose(); panelFont.Dispose(); smallFont.Dispose(); }
     }
 }

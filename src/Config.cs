@@ -50,7 +50,7 @@ namespace QuickCut
 
     class Config
     {
-        public const string DefaultHotkey = "Alt+`"; // key left of 1; one hand, rarely used by other apps
+        public const string DefaultHotkey = "Ctrl+Space"; // one hand, same as other ring launchers
         public const int MaxItems = 12;
 
         public string Hotkey = DefaultHotkey;
@@ -63,6 +63,7 @@ namespace QuickCut
         public string ButtonColor = "";     // color of all buttons, "" = theme default
         public string RingSize = "medium";  // small, medium, large
         public bool VolumeBar = true;       // volume blocks under the ring
+        public bool MediaBar = true;        // what's playing, under the volume (or in its place when that's off)
         public int VolumeStep = 5;          // percent per step (5 or 10): blocks, - / + and scrolling
 
         public float SizeFactor { get { return RingSize == "small" ? 0.8f : RingSize == "large" ? 1.25f : 1f; } }
@@ -127,6 +128,7 @@ namespace QuickCut
                     else if (key == "buttoncolor") c.ButtonColor = val;
                     else if (key == "size") c.RingSize = val;
                     else if (key == "volumebar") c.VolumeBar = val != "0";
+                    else if (key == "mediabar") c.MediaBar = val != "0";
                     else if (key == "volumestep") c.VolumeStep = val == "10" ? 10 : 5;
                     else if (key == "center") { RingItem it = RingItem.Parse(val); if (it != null) c.Center = it; }
                     else if (key == "item" && c.Items.Count < MaxItems) { RingItem it = RingItem.Parse(val); if (it != null) c.Items.Add(it); }
@@ -152,6 +154,7 @@ namespace QuickCut
             sb.AppendLine("buttoncolor=" + ButtonColor);
             sb.AppendLine("size=" + RingSize);
             sb.AppendLine("volumebar=" + (VolumeBar ? "1" : "0"));
+            sb.AppendLine("mediabar=" + (MediaBar ? "1" : "0"));
             sb.AppendLine("volumestep=" + VolumeStep);
             sb.AppendLine("center=" + Center.Serialize());
             foreach (RingItem it in Items) sb.AppendLine("item=" + it.Serialize());
@@ -171,6 +174,7 @@ namespace QuickCut
             c.ButtonColor = ButtonColor;
             c.RingSize = RingSize;
             c.VolumeBar = VolumeBar;
+            c.MediaBar = MediaBar;
             c.VolumeStep = VolumeStep;
             c.Center = Center.Clone();
             foreach (RingItem it in Items) c.Items.Add(it.Clone());
