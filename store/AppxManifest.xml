@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Package manifest for the Microsoft Store version (built by build-store.cmd).
+
+  Name, Publisher and PublisherDisplayName come from Partner Center (Product management >
+  Product identity) and must stay exactly as they are there.
+
+  Version: raise it for every Store update. The last number must stay 0.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop desktop6 rescap">
+
+  <Identity Name="Ringside.QuickCut" Publisher="CN=F40F883E-CFCB-4382-95FE-65DAAC0BDAA8" Version="1.0.0.0" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>QuickCut</DisplayName>
+    <PublisherDisplayName>Ringside</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <!-- Write straight to the real AppData and registry, like the plain exe, instead of a private
+         per-package copy. Keeps config.ini in %APPDATA%\QuickCut and lets launched programs behave
+         normally. -->
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+  </Properties>
+
+  <Dependencies>
+    <!-- 1903: needed for the two settings above; what's-playing needs 1809 anyway. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.18362.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="QuickCut" Executable="QuickCut.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="QuickCut"
+        Description="A ring of shortcuts around your mouse: launch apps, open websites, control media and volume."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- "Start with Windows". TaskId must match StartupTaskWin in src/Program.cs.
+             Off until the user turns it on in Settings. -->
+        <desktop:Extension Category="windows.startupTask" Executable="QuickCut.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="QuickCutStartup" Enabled="false" DisplayName="QuickCut" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+</Package>

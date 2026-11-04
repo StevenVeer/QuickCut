@@ -23,6 +23,24 @@ build.cmd
 
 This creates `QuickCut.exe` in the project folder.
 
+### Microsoft Store package
+
+```
+build-store.cmd
+```
+
+This creates `QuickCut.msix` (needs the Windows SDK for `makeappx`/`makepri`). The package
+manifest is `store/AppxManifest.xml`. Before submitting, put in the identity values from
+Partner Center (see the comment at the top of that file). The Store signs the package.
+
+To try the Store version on your own PC (Developer Mode on, other QuickCut closed):
+
+```
+Add-AppxPackage -Register build\store\AppxManifest.xml
+```
+
+Remove it again with `Get-AppxPackage Ringside.QuickCut | Remove-AppxPackage`.
+
 ## Adding a language
 
 All user-facing text lives in `src/Strings.cs`. To add a language, add a method that reassigns

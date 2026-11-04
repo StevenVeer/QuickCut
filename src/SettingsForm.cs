@@ -698,6 +698,15 @@ namespace QuickCut
             c.RingSize = size;
             c.ButtonColor = buttonColor;
             c.Accent = accent;
+            using (Bitmap b = Render(c, tab)) b.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        }
+
+        // Draws the settings window off screen (for previews and the Store screenshots).
+        public static Bitmap Render(Config c, int tab) { return Render(c, tab, false); }
+
+        // clientOnly: without the title bar and border (DrawToBitmap draws those in an old style).
+        public static Bitmap Render(Config c, int tab, bool clientOnly)
+        {
             using (SettingsForm f = new SettingsForm(null, c))
             {
                 f.StartPosition = FormStartPosition.Manual;
@@ -705,12 +714,13 @@ namespace QuickCut
                 f.tabs.SelectedIndex = tab;
                 f.Show();
                 Application.DoEvents();
-                using (Bitmap b = new Bitmap(f.Width, f.Height))
-                {
-                    f.DrawToBitmap(b, new Rectangle(Point.Empty, f.Size));
-                    b.Save(path, System.Drawing.Imaging.ImageFormat.Png);
-                }
+                Bitmap b = new Bitmap(f.Width, f.Height);
+                f.DrawToBitmap(b, new Rectangle(Point.Empty, f.Size));
                 f.commitTimer.Stop();
+                if (!clientOnly) return b;
+                Point origin = f.PointToScreen(Point.Empty);
+                Rectangle client = new Rectangle(origin.X - f.Left, origin.Y - f.Top, f.ClientSize.Width, f.ClientSize.Height);
+                using (b) return b.Clone(client, b.PixelFormat);
             }
         }
     }

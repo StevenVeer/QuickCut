@@ -288,6 +288,43 @@ namespace QuickCut
             using (Bitmap b = RenderAppIcon(size)) return Icon.FromHandle(b.GetHicon());
         }
 
+        // Writes the logo PNGs for the Store package (see build-store.cmd). File names use MSIX
+        // resource qualifiers, so Windows picks the sharpest one for each size and screen scale.
+        public static void WriteStoreLogos(string dir)
+        {
+            Directory.CreateDirectory(dir);
+            int[] scales = { 100, 125, 150, 200, 400 };
+            foreach (int sc in scales)
+            {
+                // name, base width, base height, share of the height the icon fills
+                SaveLogo(dir, "Square44x44Logo", 44, 44, 0.92f, sc);
+                SaveLogo(dir, "Square150x150Logo", 150, 150, 0.6f, sc);
+                SaveLogo(dir, "Wide310x150Logo", 310, 150, 0.6f, sc);
+                SaveLogo(dir, "StoreLogo", 50, 50, 0.92f, sc);
+            }
+            // Taskbar, Start list and Explorer: exact pixel sizes, drawn without a tile behind them.
+            foreach (int t in new[] { 16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256 })
+            {
+                using (Bitmap b = RenderAppIcon(t))
+                {
+                    b.Save(Path.Combine(dir, "Square44x44Logo.targetsize-" + t + ".png"), ImageFormat.Png);
+                    b.Save(Path.Combine(dir, "Square44x44Logo.targetsize-" + t + "_altform-unplated.png"), ImageFormat.Png);
+                    b.Save(Path.Combine(dir, "Square44x44Logo.targetsize-" + t + "_altform-lightunplated.png"), ImageFormat.Png);
+                }
+            }
+        }
+
+        static void SaveLogo(string dir, string name, int w, int h, float fill, int scale)
+        {
+            int pw = w * scale / 100, ph = h * scale / 100, s = (int)Math.Round(ph * fill);
+            using (Bitmap b = new Bitmap(pw, ph, PixelFormat.Format32bppArgb))
+            using (Bitmap icon = RenderAppIcon(s))
+            {
+                using (Graphics g = Graphics.FromImage(b)) g.DrawImage(icon, (pw - s) / 2, (ph - s) / 2, s, s);
+                b.Save(Path.Combine(dir, name + ".scale-" + scale + ".png"), ImageFormat.Png);
+            }
+        }
+
         // Writes a multi-size .ico (PNG frames) for the exe.
         public static void WriteIco(string path)
         {

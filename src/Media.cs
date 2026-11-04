@@ -26,11 +26,14 @@ namespace QuickCut
         static bool unsupported;   // older Windows (before 10 1809): no media API
         public static event Action Changed;
 
-        public static MediaInfo Current { get { return current; } }
+        public static MediaInfo Current { get { return Demo ?? current; } }
+
+        // Store screenshots: shown instead of what's really playing (no real song or cover art).
+        public static MediaInfo Demo;
 
         public static void Refresh()
         {
-            if (unsupported || Interlocked.CompareExchange(ref busy, 1, 0) != 0) return;
+            if (Demo != null || unsupported ||Interlocked.CompareExchange(ref busy, 1, 0) != 0) return;
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try { Update(MediaWin.Fetch(current)); }

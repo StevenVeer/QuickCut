@@ -18,6 +18,13 @@ namespace QuickCut
         {
             // Build helpers: generate the exe icon / render a preview image of the ring.
             if (args.Length == 2 && args[0] == "--make-icon") { Art.WriteIco(args[1]); return 0; }
+            if (args.Length == 2 && args[0] == "--make-store-logos") { Art.WriteStoreLogos(args[1]); return 0; }
+            if (args.Length == 2 && args[0] == "--store-shots")
+            {
+                Application.EnableVisualStyles();
+                StoreShots.Write(args[1]);
+                return 0;
+            }
             if (args.Length >= 2 && args[0] == "--preview")
             {
                 // --preview out.png [hoverIndex] [theme] [hoverStyle]
