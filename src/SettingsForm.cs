@@ -39,7 +39,7 @@ namespace QuickCut
         // Appearance tab
         Segmented themeSeg, hoverSeg, sizeSeg;
         ColorChooser allColor, accentColor;
-        Label lblSize, lblHoverStyle, lblHoverHint;
+        Label lblSize, lblHoverStyle, lblPreviewHint;
 
         // General tab
         ToggleSwitch tgMouse, tgFullscreen, tgAutostart, tgNotice, tgVolume;
@@ -100,7 +100,7 @@ namespace QuickCut
                 try { Actions.Execute(Current); }
                 catch (Exception ex) { MessageBox.Show(this, ex.Message, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             };
-            AddLabel(left, Str.PreviewHint, 20, 472, 300, 38, "muted");
+            lblPreviewHint = AddLabel(left, Str.PreviewHint, 20, 472, 300, 38, "muted"); // text follows the tab, see ShowTab
 
             Card right = Add(this, new Card(), 376, 64, 384, 516);
             pnlButtons = Add(right, new Panel(), 16, 14, 352, 488);
@@ -276,8 +276,6 @@ namespace QuickCut
             hoverSeg = Add(p, new Segmented(Str.HoverOptions), 0, 0, 352, 36);
             hoverSeg.SelectedIndex = Math.Max(0, Array.IndexOf(HoverIds, work.HoverStyle));
             hoverSeg.SelectedIndexChanged += delegate { work.HoverStyle = HoverIds[hoverSeg.SelectedIndex]; Changed(); };
-
-            lblHoverHint = AddLabel(p, Str.HoverHint, 0, 0, 352, 40, "muted");
             LayoutAppearance();
 
             reset.Click += delegate
@@ -301,9 +299,7 @@ namespace QuickCut
             lblSize.Top = S(y); sizeSeg.Top = S(y + 20); y += 56 + gap;
             allColor.Top = S(y); y += allColor.Height / sc + gap;
             accentColor.Top = S(y); y += accentColor.Height / sc + gap;
-            lblHoverStyle.Top = S(y); hoverSeg.Top = S(y + 20); y += 56 + gap;
-            lblHoverHint.Top = S(y);
-            lblHoverHint.Visible = y + 20 <= 488; // only when both grids aren't open at once
+            lblHoverStyle.Top = S(y); hoverSeg.Top = S(y + 20);
         }
 
         void BuildGeneralTab()
@@ -360,6 +356,8 @@ namespace QuickCut
             pnlButtons.Visible = tabs.SelectedIndex == 0;
             pnlAppearance.Visible = tabs.SelectedIndex == 1;
             pnlGeneral.Visible = tabs.SelectedIndex == 2;
+            // The hover hint sits under the ring it talks about, so it always fits, even with both color grids open.
+            lblPreviewHint.Text = tabs.SelectedIndex == 1 ? Str.HoverHint : Str.PreviewHint;
         }
 
         // ---------- theme ----------

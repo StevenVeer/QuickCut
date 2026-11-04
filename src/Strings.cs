@@ -74,7 +74,7 @@ namespace QuickCut
         public static string HoverColor = "Hover color";
         public static string HoverStyle = "Hover style";
         public static string[] HoverOptions = { "Fill", "Inverted", "Outline", "Grow" };
-        public static string HoverHint = "Hover over the ring on the left to try it.";
+        public static string HoverHint = "Hover over the ring to try your colors.";
         public static string ResetAppearance = "Reset to defaults";
 
         // Color choosers and the color picker
