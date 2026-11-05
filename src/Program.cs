@@ -150,7 +150,7 @@ namespace QuickCut
         public App()
         {
             Instance = this;
-            Autostart.Repair();
+            ThreadPool.QueueUserWorkItem(delegate { Autostart.Repair(); }); // runs schtasks.exe: not on the UI thread
             bool firstRun;
             cfg = Config.Load(out firstRun);
             ring = new RingForm(cfg);
@@ -319,19 +319,25 @@ namespace QuickCut
         }
     }
 
-    // Windows only launches a Run entry at login when Explorer's StartupApproved list marks it as
-    // enabled (first byte 0x02; 0x03 = disabled in Task Manager). Newer Windows builds skip entries
-    // that are missing from that list, so both values have to be written.
+    // "Start with Windows" for the plain exe: a Task Scheduler task that runs at sign-in. Any user can
+    // create one for themselves, no admin needed.
     //
-    // The Store (MSIX) version can't use this: a packaged app's registry writes go to its own private
-    // copy, which Explorer never reads. There it uses the package's startup task instead.
+    // Earlier versions used the HKCU Run key. Windows 11 can skip a Run entry at sign-in without
+    // logging why: on build 26300 a correctly approved entry was never started, while the entries
+    // around it were. A logon task doesn't go through Explorer's Run handling at all. Old Run entries
+    // are moved over to a task at launch (see Repair).
+    //
+    // The Store (MSIX) version uses the package's startup task instead (see StartupTaskWin).
     static class Autostart
     {
         const string Name = "QuickCut";
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string ApprovedKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
-        static string Command { get { return "\"" + Application.ExecutablePath + "\""; } }
+        // Task names are shared by everyone on the PC, so each user gets their own (by SID, which
+        // survives renaming the account).
+        static string UserSid { get { return System.Security.Principal.WindowsIdentity.GetCurrent().User.Value; } }
+        static string TaskName { get { return Name + "-" + UserSid; } }
 
         // True when running from an installed package (the Store version).
         public static readonly bool Packaged = IsPackaged();
@@ -362,10 +368,8 @@ namespace QuickCut
             {
                 try { return StartupTaskWin.IsEnabled(); } catch { return false; }
             }
-            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey))
-                if (k == null || k.GetValue(Name) == null) return false;
-            byte[] state = ApprovedState();
-            return state == null || state.Length == 0 || (state[0] & 1) == 0; // odd = disabled
+            string xml = QueryTask();
+            return xml != null && !TaskDisabled(xml);
         }
 
         public static void Set(bool on)
@@ -375,34 +379,107 @@ namespace QuickCut
                 try { StartupTaskWin.Set(on); } catch { }
                 return;
             }
-            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RunKey))
+            try
             {
-                if (on) k.SetValue(Name, Command);
-                else k.DeleteValue(Name, false);
+                if (on) RegisterTask(true);
+                else Schtasks("/delete /tn \"" + TaskName + "\" /f");
+                RemoveRunEntry(); // from an older version; would otherwise start a second copy
             }
-            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(ApprovedKey))
-            {
-                if (on) k.SetValue(Name, new byte[12] { 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, RegistryValueKind.Binary);
-                else k.DeleteValue(Name, false);
-            }
+            catch { }
         }
 
-        // Called at launch: if autostart is on, keep the path current (the exe may have moved) and
-        // add the missing approval. Never overrides a "disabled" the user set in Task Manager.
+        // Called at launch, off the UI thread (it runs schtasks.exe). Moves an old Run entry over to a
+        // task, and keeps the task's path current (the exe may have moved). Keeps "off" off: a Run
+        // entry disabled in Task Manager or a task disabled in Task Scheduler isn't turned back on.
         public static void Repair()
         {
             if (Packaged) return; // the startup task always points at the installed app
             try
             {
-                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                bool hadRun;
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey))
+                    hadRun = k != null && k.GetValue(Name) != null;
+                if (hadRun)
                 {
-                    if (k == null || k.GetValue(Name) == null) return;
-                    if (!string.Equals(k.GetValue(Name) as string, Command, StringComparison.OrdinalIgnoreCase))
-                        k.SetValue(Name, Command);
+                    byte[] state = ApprovedState();
+                    bool off = state != null && state.Length > 0 && (state[0] & 1) != 0; // odd = disabled
+                    if (off || RegisterTask(true)) RemoveRunEntry(); // only drop it once the task exists
+                    return;
                 }
-                if (ApprovedState() == null) Set(true);
+                string xml = QueryTask();
+                string exe = System.Security.SecurityElement.Escape(Application.ExecutablePath);
+                if (xml != null && xml.IndexOf(exe, StringComparison.OrdinalIgnoreCase) < 0)
+                    RegisterTask(!TaskDisabled(xml));
             }
-            catch { } // registry not writable: nothing useful to do
+            catch { } // Task Scheduler or registry not available: nothing useful to do
+        }
+
+        static bool TaskDisabled(string xml) { return xml.Contains("<Enabled>false</Enabled>"); }
+
+        static string QueryTask()
+        {
+            string output;
+            return Schtasks("/query /tn \"" + TaskName + "\" /xml", out output) == 0 ? output : null;
+        }
+
+        static bool RegisterTask(bool enabled)
+        {
+            string exe = Application.ExecutablePath;
+            Func<string, string> esc = System.Security.SecurityElement.Escape;
+            string xml =
+                "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n" +
+                "<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">" +
+                  "<RegistrationInfo><Description>Starts QuickCut when you sign in.</Description></RegistrationInfo>" +
+                  "<Triggers><LogonTrigger><Enabled>true</Enabled><UserId>" + UserSid + "</UserId></LogonTrigger></Triggers>" +
+                  "<Principals><Principal id=\"Author\"><UserId>" + UserSid + "</UserId>" +
+                    "<LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>" +
+                  "<Settings>" +
+                    "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>" +
+                    // Task Scheduler's defaults would skip it on battery and stop it after 3 days.
+                    "<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>" +
+                    "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>" +
+                    "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>" +
+                    "<Priority>4</Priority>" + // normal; the default (7) is below normal and would slow the ring
+                    "<Enabled>" + (enabled ? "true" : "false") + "</Enabled>" +
+                  "</Settings>" +
+                  "<Actions Context=\"Author\"><Exec><Command>" + esc(exe) + "</Command>" +
+                    "<WorkingDirectory>" + esc(System.IO.Path.GetDirectoryName(exe)) + "</WorkingDirectory></Exec></Actions>" +
+                "</Task>";
+            string file = System.IO.Path.GetTempFileName();
+            try
+            {
+                System.IO.File.WriteAllText(file, xml, System.Text.Encoding.Unicode);
+                return Schtasks("/create /tn \"" + TaskName + "\" /xml \"" + file + "\" /f") == 0;
+            }
+            finally { try { System.IO.File.Delete(file); } catch { } }
+        }
+
+        static int Schtasks(string args) { string ignored; return Schtasks(args, out ignored); }
+
+        static int Schtasks(string args, out string output)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(
+                System.IO.Path.Combine(Environment.SystemDirectory, "schtasks.exe"), args);
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            using (var p = System.Diagnostics.Process.Start(psi))
+            {
+                p.ErrorDataReceived += delegate { }; // drained so a full stderr pipe can't block it
+                p.BeginErrorReadLine();
+                output = p.StandardOutput.ReadToEnd();
+                if (!p.WaitForExit(15000)) { try { p.Kill(); } catch { } return -1; }
+                return p.ExitCode;
+            }
+        }
+
+        static void RemoveRunEntry()
+        {
+            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                if (k != null) k.DeleteValue(Name, false);
+            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(ApprovedKey, true))
+                if (k != null) k.DeleteValue(Name, false);
         }
 
         static byte[] ApprovedState()
