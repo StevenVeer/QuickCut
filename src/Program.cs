@@ -322,10 +322,10 @@ namespace QuickCut
     // "Start with Windows" for the plain exe: a Task Scheduler task that runs at sign-in. Any user can
     // create one for themselves, no admin needed.
     //
-    // Earlier versions used the HKCU Run key. Windows 11 can skip a Run entry at sign-in without
-    // logging why: on build 26300 a correctly approved entry was never started, while the entries
-    // around it were. A logon task doesn't go through Explorer's Run handling at all. Old Run entries
-    // are moved over to a task at launch (see Repair).
+    // Earlier versions used the HKCU Run key. A copy started from inside a packaged app (the Claude
+    // desktop app, for one) writes HKCU to that app's private copy, which Explorer never reads, so the
+    // entry looks fine there but never runs. Task Scheduler is a system service, so a task is real
+    // wherever it's created from. Old Run entries are moved over to a task at launch (see Repair).
     //
     // The Store (MSIX) version uses the package's startup task instead (see StartupTaskWin).
     static class Autostart
@@ -530,6 +530,7 @@ namespace QuickCut
         [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int pid);
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
         [DllImport("user32.dll")] public static extern short GetKeyState(int vk);
         [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);
         [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr pid);

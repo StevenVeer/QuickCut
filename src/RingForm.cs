@@ -37,6 +37,7 @@ namespace QuickCut
         int hover = HitNone;
         byte alpha = 255;
         IntPtr prevWindow;
+        bool opening; // between Show() and having the focus: a deactivation then doesn't close the ring
 
         public RingForm(Config cfg)
         {
@@ -184,8 +185,15 @@ namespace QuickCut
             warmTimer.Stop();
             Render();
             area = new HitArea(rr, x, y);
-            Show();
-            TakeFocus();
+            // A QuickCut started in the background (by the sign-in task, for one) can't activate a window
+            // with Show(): Windows activates and deactivates it right away, which must not close the
+            // ring. TakeFocus then gets the focus for real.
+            opening = true;
+            try { Show(); TakeFocus(); }
+            finally { opening = false; }
+            // TopMost alone left the ring behind other windows when QuickCut was started in the
+            // background, so put it on top explicitly. -1 = HWND_TOPMOST; no move, resize or activation.
+            Native.SetWindowPos(Handle, (IntPtr)(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
             fadeTimer.Start();
             if (holding) holdTimer.Start();
             if (cfg.MediaBar) { Media.Refresh(); mediaTimer.Start(); }
@@ -392,7 +400,7 @@ namespace QuickCut
         protected override void OnDeactivate(EventArgs e)
         {
             base.OnDeactivate(e);
-            HideRing();
+            if (!opening) HideRing();
         }
 
         void Run(RingItem it)
