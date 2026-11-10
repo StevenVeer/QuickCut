@@ -52,5 +52,6 @@ If this policy changes, the new version will be posted here with a new date.
 
 ## Contact
 
-Questions about privacy? Open an issue at
+Questions about privacy? Email [ringsideapps.support@gmail.com](mailto:ringsideapps.support@gmail.com)
+or open an issue at
 [github.com/StevenVeer/QuickCut/issues](https://github.com/StevenVeer/QuickCut/issues).
