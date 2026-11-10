@@ -14,7 +14,8 @@ analytics and no tracking, and it never connects to the internet on its own.
 To work, QuickCut uses some information on your own computer. None of it leaves your PC.
 
 - **Your settings** (your buttons, shortcut and preferences) are saved in a file at
-  `%APPDATA%\QuickCut\config.ini`. You can delete it at any time.
+  `%APPDATA%\QuickCut\config.ini`. You can delete it at any time. The Store version keeps its
+  files in its own app folder instead, which Windows removes when you uninstall QuickCut.
 - **Installed apps and their icons** are read so you can pick an app for a button.
 - **Open windows** are read when you use a button that switches between windows.
 - **What's playing** (title, artist and cover art from apps like Spotify or your browser) is

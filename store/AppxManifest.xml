@@ -12,9 +12,8 @@
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
-  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap desktop desktop6 rescap">
+  IgnorableNamespaces="uap desktop rescap">
 
   <Identity Name="Ringside.QuickCut" Publisher="CN=F40F883E-CFCB-4382-95FE-65DAAC0BDAA8" Version="1.0.0.0" ProcessorArchitecture="x64" />
 
@@ -22,15 +21,13 @@
     <DisplayName>QuickCut</DisplayName>
     <PublisherDisplayName>Ringside</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
-    <!-- Write straight to the real AppData and registry, like the plain exe, instead of a private
-         per-package copy. Keeps config.ini in %APPDATA%\QuickCut and lets launched programs behave
-         normally. -->
-    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
-    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+    <!-- No unvirtualizedResources (the Store turned it down): QuickCut's own new files in AppData go
+         to the package's private copy, and programs and websites are started through Explorer so
+         they write to the real AppData and registry (see src/ExplorerShell.cs). -->
   </Properties>
 
   <Dependencies>
-    <!-- 1903: needed for the two settings above; what's-playing needs 1809 anyway. -->
+    <!-- 1903 was needed for turning virtualization off; what's-playing needs 1809. -->
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.18362.0" MaxVersionTested="10.0.26100.0" />
   </Dependencies>
 
@@ -60,6 +57,5 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
-    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
 </Package>

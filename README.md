@@ -12,7 +12,9 @@ launch programs, open websites, control media (Spotify, YouTube, ...) or send ke
   Steps of 5% or 10%, and the blocks can be hidden (Settings > General > Volume)
 - Center = default button (Play/Pause), surrounded by up to 12 buttons of your own
 - Settings: click the tray icon, or start the exe again
-- Settings are stored in `%APPDATA%\QuickCut\config.ini`
+- Settings are stored in `%APPDATA%\QuickCut\config.ini` (Store version:
+  `%LOCALAPPDATA%\Packages\Ringside.QuickCut_<id>\LocalCache\Roaming\QuickCut\config.ini`, removed
+  when you uninstall it)
 - Shortcut buttons (key combinations) can't send keys to apps running as administrator: Windows
   blocks that for programs that aren't elevated themselves, and QuickCut doesn't ask for admin rights.
 

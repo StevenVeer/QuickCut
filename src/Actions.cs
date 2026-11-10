@@ -82,20 +82,17 @@ namespace QuickCut
                     if (path.Length == 0) throw new InvalidOperationException(Str.NoProgram);
                     // Already open: go to its window instead of starting another copy (browsers would open a new window).
                     if (WindowSwitcher.TrySwitch(path)) break;
-                    ProcessStartInfo psi = new ProcessStartInfo(path);
-                    psi.UseShellExecute = true;
-                    if (!string.IsNullOrEmpty(it.Args)) psi.Arguments = Environment.ExpandEnvironmentVariables(it.Args);
-                    try { if (File.Exists(path)) psi.WorkingDirectory = Path.GetDirectoryName(path); } catch { }
-                    Start(psi);
+                    string args = string.IsNullOrEmpty(it.Args) ? "" : Environment.ExpandEnvironmentVariables(it.Args);
+                    string dir = "";
+                    try { if (File.Exists(path)) dir = Path.GetDirectoryName(path); } catch { }
+                    Start(path, args, dir);
                     break;
                 }
                 case ActionType.Url:
                 {
                     string url = WebAddress(it.Target);
                     if (url.Length == 0) throw new InvalidOperationException(Str.NoAddress);
-                    ProcessStartInfo psi = new ProcessStartInfo(url);
-                    psi.UseShellExecute = true;
-                    Start(psi);
+                    Start(url, "", "");
                     break;
                 }
                 case ActionType.Media:
@@ -112,8 +109,21 @@ namespace QuickCut
             }
         }
 
-        static void Start(ProcessStartInfo psi)
+        // Opens a program, file, folder or web address the way Explorer would.
+        public static void Start(string file, string args, string dir)
         {
+            if (Autostart.Packaged)
+            {
+                // Explorer reports a missing file in its own dialog, later; keep showing ours instead.
+                if (Path.IsPathRooted(file) && !File.Exists(file) && !Directory.Exists(file))
+                    throw new System.ComponentModel.Win32Exception(2); // "The system cannot find the file specified"
+                try { ExplorerShell.Run(file, args, dir); return; }
+                catch { } // no Explorer to ask: start it ourselves (inside the package) rather than not at all
+            }
+            ProcessStartInfo psi = new ProcessStartInfo(file);
+            psi.UseShellExecute = true;
+            if (args.Length > 0) psi.Arguments = args;
+            if (dir.Length > 0) psi.WorkingDirectory = dir;
             Process p = Process.Start(psi);
             if (p != null) p.Dispose();
         }

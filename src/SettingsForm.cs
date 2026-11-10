@@ -620,7 +620,7 @@ namespace QuickCut
             string url = "https://github.com/StevenVeer/QuickCut/issues/new?template=" + template +
                 "&version=" + Uri.EscapeDataString(AppVersion()) +
                 "&windows=" + Uri.EscapeDataString(WindowsVersion());
-            try { System.Diagnostics.Process.Start(url); }
+            try { Actions.Start(url, "", ""); }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
 
