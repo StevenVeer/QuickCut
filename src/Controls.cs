@@ -505,7 +505,9 @@ namespace QuickCut
                 if (rr == null || rrSize != want || rr.VolumeBar != vol || rr.MediaBar != med)
                 {
                     if (rr != null) rr.Dispose();
-                    rr = new RingRenderer(scale, factor, vol, med, 0.9f * S); // panel text near real size, so it's readable
+                    // Panel text near real size and labels a bit smaller (they must fit their buttons),
+                    // so the preview's text stays readable and sharp.
+                    rr = new RingRenderer(scale, factor, vol, med, 0.9f * S, 0.85f * S);
                     rrSize = want;
                 }
                 return rr;
@@ -514,7 +516,7 @@ namespace QuickCut
 
         protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); Invalidate(); }
 
-        PointF Local(Point p) { RingRenderer r = Renderer; return new PointF(p.X - (Width - r.Size) / 2f, p.Y - (Height - r.Height) / 2f); }
+        PointF Local(Point p) { RingRenderer r = Renderer; return new PointF(p.X - (Width - r.Size) / 2, p.Y - (Height - r.Height) / 2); }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
@@ -571,7 +573,8 @@ namespace QuickCut
             Graphics g = Prepare(e);
             if (Cfg == null) return;
             RingRenderer r = Renderer;
-            g.TranslateTransform((Width - r.Size) / 2f, (Height - r.Height) / 2f);
+            // Whole pixels: a half-pixel offset smears every letter and line over two pixels.
+            g.TranslateTransform((Width - r.Size) / 2, (Height - r.Height) / 2);
             r.Draw(g, Cfg, Pal, hover, selected, false);
             if (r.VolumeBar)
             {

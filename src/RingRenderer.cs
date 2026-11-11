@@ -1,7 +1,10 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Drawing.Text;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
 
 namespace QuickCut
 {
@@ -34,7 +37,11 @@ namespace QuickCut
         // sizeFactor: the chosen ring size (Small = 0.8), already included in scale.
         // minPanelText: the smallest scale for the panels' text (the settings preview draws the ring small,
         // but its panel text should stay readable); 0 = no minimum.
+        // minLabelText: the same for the button labels.
         public RingRenderer(float scale, float sizeFactor, bool volumeBar, bool mediaBar, float minPanelText)
+            : this(scale, sizeFactor, volumeBar, mediaBar, minPanelText, 0) { }
+
+        public RingRenderer(float scale, float sizeFactor, bool volumeBar, bool mediaBar, float minPanelText, float minLabelText)
         {
             Sc = scale;
             Size = (int)Math.Round(320 * scale);
@@ -49,7 +56,7 @@ namespace QuickCut
             RInner = (small ? 63 : 66) * scale;
             RCenter = (small ? 59 : 57) * scale;
             float textScale = small ? scale / sizeFactor * 0.92f : scale;
-            labelFont = new Font("Segoe UI", 11.5f * textScale, GraphicsUnit.Pixel);
+            labelFont = new Font("Segoe UI", 11.5f * Math.Max(textScale, minLabelText), GraphicsUnit.Pixel);
             float panelScale = Math.Max(textScale, minPanelText);
             panelFont = new Font("Segoe UI Semibold", 12f * panelScale, GraphicsUnit.Pixel);
             smallFont = new Font("Segoe UI", 11.5f * panelScale, GraphicsUnit.Pixel);
@@ -240,8 +247,12 @@ namespace QuickCut
             float tx = (float)Math.Round(tr.Right + 9 * Sc), tw = (float)Math.Floor(MediaBtnAt(0).X - 19 * Sc - tx);
             string title = info != null ? info.Title : Str.NothingPlaying;
             string sub = info == null ? "" : info.Artist.Length > 0 ? info.Artist : info.App;
-            using (StringFormat sf = new StringFormat(StringFormatFlags.NoWrap) { Trimming = StringTrimming.EllipsisCharacter })
+            // Typographic like the title: the default format adds a small gap before the first letter,
+            // which made the second line start a pixel or two right of the title.
+            using (StringFormat sf = new StringFormat(StringFormat.GenericTypographic))
             {
+                sf.FormatFlags |= StringFormatFlags.NoWrap;
+                sf.Trimming = StringTrimming.EllipsisCharacter;
                 float lh = panelFont.GetHeight(g), sh = smallFont.GetHeight(g);
                 float ty = sub.Length > 0 ? pr.Top + 25 * Sc - (lh + sh) / 2 : pr.Top + 25 * Sc - lh / 2;
                 using (SolidBrush tb = new SolidBrush(info != null ? pal.Text : pal.Muted))
@@ -610,7 +621,7 @@ namespace QuickCut
             RectangleF ir, lr;
             SegmentBoxes(L, i, l.Grow, out ir, out lr);
             Art.DrawItem(g, it, ir, l.Fg);
-            using (SolidBrush tb = new SolidBrush(l.Fg)) g.DrawString(it.Label, labelFont, tb, lr, sf);
+            DrawLabel(g, it.Label, l.Fg, l.Fill, lr);
         }
 
         void DrawCenter(Graphics g, Config cfg, Palette pal, Layout L, StringFormat sf, bool hot, bool selected)
@@ -629,7 +640,46 @@ namespace QuickCut
             RectangleF gr = new RectangleF(Cx - gs / 2, Cy - (gs + 3 * Sc + L.Lh) / 2, gs, gs);
             Art.DrawItem(g, cfg.Center, gr, c.Fg);
             RectangleF clr = new RectangleF(Cx - RCenter + 6 * Sc, gr.Bottom + 3 * Sc, 2 * RCenter - 12 * Sc, L.Lh);
-            using (SolidBrush tb = new SolidBrush(c.Fg)) g.DrawString(cfg.Center.Label, labelFont, tb, clr, sf);
+            DrawLabel(g, cfg.Center.Label, c.Fg, c.Fill, clr);
+        }
+
+        // Labels are drawn by Windows' own text engine (GDI, like the settings window), which is much
+        // crisper at this size than GDI+ even with ClearType. GDI can't draw on see-through pixels, so the
+        // label goes onto a small tile in the button's color first, and only the text pixels are copied
+        // over (the tile's plain color is left out). That works because a label always sits on its button.
+        void DrawLabel(Graphics g, string text, Color fg, Color fill, RectangleF r)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            int w = Math.Max(1, (int)Math.Round(r.Width)), h = Math.Max(1, (int)Math.Ceiling(r.Height));
+            const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding
+                | TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.EndEllipsis;
+            using (Bitmap tile = new Bitmap(w, h, PixelFormat.Format32bppArgb))
+            {
+                using (Graphics tg = Graphics.FromImage(tile))
+                {
+                    tg.Clear(fill);
+                    TextRenderer.DrawText(tg, text, labelFont, new Rectangle(0, 0, w, h), fg, fill, flags);
+                }
+                // GDI leaves the alpha of the pixels it drew at 0: make the tile opaque again.
+                BitmapData d = tile.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+                int[] px = new int[w * h];
+                Marshal.Copy(d.Scan0, px, 0, px.Length);
+                for (int i = 0; i < px.Length; i++) px[i] |= unchecked((int)0xFF000000);
+                Marshal.Copy(px, 0, d.Scan0, px.Length);
+                tile.UnlockBits(d);
+
+                GraphicsState st = g.Save();
+                g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                g.PixelOffsetMode = PixelOffsetMode.Half;
+                using (ImageAttributes ia = new ImageAttributes())
+                {
+                    ia.SetColorKey(fill, fill); // the tile's background: leave the ring as it is there
+                    // Whole pixels, so the text isn't resampled.
+                    int x = (int)Math.Round(r.X + (r.Width - w) / 2), y = (int)Math.Round(r.Y);
+                    g.DrawImage(tile, new Rectangle(x, y, w, h), 0, 0, w, h, GraphicsUnit.Pixel, ia);
+                }
+                g.Restore(st);
+            }
         }
 
         void Outline(Graphics g, GraphicsPath p, Palette pal, bool hoverOutline, bool selected)
