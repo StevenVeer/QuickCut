@@ -247,8 +247,9 @@ namespace QuickCut
             holding = false;
             holdTimer.Stop();
             if (!moved || hover == HitNone) return;
-            if (hover == HitCenter) Run(cfg.Center);
-            else if (hover < cfg.Items.Count) Run(cfg.Items[hover]);
+            // Picked by releasing the trigger: always close, media buttons too.
+            if (hover == HitCenter) Run(cfg.Center, true);
+            else if (hover < cfg.Items.Count) Run(cfg.Items[hover], true);
         }
 
         public void HideRing()
@@ -443,10 +444,12 @@ namespace QuickCut
             if (!opening) HideRing();
         }
 
-        void Run(RingItem it)
+        void Run(RingItem it) { Run(it, false); }
+
+        void Run(RingItem it, bool fromHold)
         {
-            // Volume steps keep the ring open so you can click/scroll a few times.
-            bool keepOpen = it.Type == ActionType.Media && (it.Target == "volup" || it.Target == "voldown");
+            // Clicked media buttons (play/pause, skip, volume, ...) keep the ring open so you can press a few in a row.
+            bool keepOpen = it.Type == ActionType.Media && !fromHold;
             if (!keepOpen) HideRing();
             if (it.Type == ActionType.Keys && prevWindow != IntPtr.Zero)
             {
