@@ -82,6 +82,24 @@ namespace QuickCut
         // Dark text on light colors, white text on dark colors.
         public static Color TextOn(Color bg) { return Lum(bg) > 0.6f ? Color.FromArgb(28, 28, 32) : Color.White; }
 
+        // WCAG contrast ratio between two colors: 1 (same) to 21 (black on white).
+        public static float Contrast(Color a, Color b)
+        {
+            double la = RelLum(a), lb = RelLum(b);
+            return (float)((Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05));
+        }
+
+        static double RelLum(Color c)
+        {
+            return 0.2126 * Lin(c.R) + 0.7152 * Lin(c.G) + 0.0722 * Lin(c.B);
+        }
+
+        static double Lin(int v)
+        {
+            double s = v / 255.0;
+            return s <= 0.04045 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+        }
+
         public static Color Mix(Color a, Color b, float t)
         {
             return Color.FromArgb(

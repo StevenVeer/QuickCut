@@ -35,6 +35,14 @@ namespace QuickCut
         // Where the open ring is on screen, for the mouse hook thread; null while it's closed.
         volatile HitArea area;
         int hover = HitNone;
+        // Hover fades: the hovered button eases into its hover look (inT 0..1), and the button the mouse
+        // just left eases back out (outId, outT 1..0). Only one fades out at a time; an older one snaps back.
+        float inT = 1;
+        int outId = HitNone;
+        float outT;
+        readonly System.Windows.Forms.Timer hoverTimer;
+        readonly System.Diagnostics.Stopwatch hoverClock = new System.Diagnostics.Stopwatch();
+        const float FadeInMs = 110, FadeOutMs = 160;
         byte alpha = 255;
         IntPtr prevWindow;
         bool opening; // between Show() and having the focus: a deactivation then doesn't close the ring
@@ -88,6 +96,18 @@ namespace QuickCut
             {
                 if (Visible && rr.TitleScrolls) { rr.ScrollTick(); Render(); }
                 else scrollTimer.Stop();
+            };
+            hoverTimer = new System.Windows.Forms.Timer();
+            hoverTimer.Interval = 15;
+            hoverTimer.Tick += delegate
+            {
+                // By the clock, not per tick, so the fade takes the same time even when a tick is late.
+                float ms = (float)hoverClock.Elapsed.TotalMilliseconds;
+                hoverClock.Restart();
+                inT = Math.Min(1, inT + ms / FadeInMs);
+                if (outId != HitNone && (outT -= ms / FadeOutMs) <= 0) outId = HitNone;
+                if (Visible) Render();
+                if (inT >= 1 && outId == HitNone) { hoverTimer.Stop(); hoverClock.Reset(); }
             };
             IntPtr h = Handle; // create the window now so the first show is instant
         }
@@ -178,6 +198,7 @@ namespace QuickCut
             holding = hold != HoldNone;
             hover = HitTest(new Point(m.X - x, m.Y - y));
             openHover = hover;
+            StopHoverFade(); // a button under the cursor at open shows lit right away
             volHover = RingRenderer.VolNone;
             medHover = RingRenderer.MedNone;
             moved = false;
@@ -242,6 +263,15 @@ namespace QuickCut
             area = null;
             if (Visible) Hide();
             hover = HitNone;
+            StopHoverFade();
+        }
+
+        void StopHoverFade()
+        {
+            hoverTimer.Stop();
+            hoverClock.Reset();
+            inT = 1;
+            outId = HitNone;
         }
 
         // These two are called from the mouse hook thread, so they only read the HitArea snapshot.
@@ -293,7 +323,17 @@ namespace QuickCut
         bool SetHover(int h)
         {
             if (h == hover) return false;
+            // The old button fades out from where it got to; going back to the one that's still
+            // fading out picks it up from there instead of starting over.
+            int old = hover;
+            float oldT = inT;
+            float back = h == outId ? outT : 0;
+            outId = old;
+            outT = old == HitNone ? 0 : oldT;
+            if (outT <= 0) outId = HitNone;
             hover = h;
+            inT = h == HitNone ? 1 : back;
+            if (!hoverTimer.Enabled) { hoverClock.Restart(); hoverTimer.Start(); }
             if (h != openHover) moved = true;
             UpdateCursor();
             if (Visible) Render();
@@ -449,7 +489,9 @@ namespace QuickCut
                 g.CompositingMode = CompositingMode.SourceCopy;
                 g.DrawImageUnscaled(baseLayer, 0, 0);
                 g.CompositingMode = CompositingMode.SourceOver;
-                rr.DrawHover(g, cfg, pal, h, true);
+                if (outId != HitNone && outId != h)
+                    rr.DrawHover(g, cfg, pal, new[] { h, outId }, new[] { inT, outT }, true);
+                else rr.DrawHover(g, cfg, pal, new[] { h }, new[] { inT }, true);
                 g.PixelOffsetMode = PixelOffsetMode.HighQuality; // as rr.Draw sets it
                 if (rr.VolumeBar)
                 {

@@ -432,9 +432,32 @@ namespace QuickCut
             return c.HasValue ? c.Value : pal.Button;
         }
 
-        struct Look { public Color Fill, Fg; public float Grow; public bool Outline; }
+        // Outline: how strongly the accent outline shows (the "outline" hover style), 0..1.
+        struct Look { public Color Fill, Fg; public float Grow, Outline; }
 
-        Look GetLook(Config cfg, RingItem it, Palette pal, bool hot)
+        // t: 0 = the normal look, 1 = fully hovered; in between while the hover fades in or out.
+        // The label keeps its normal color on the hover color when it's still readable there, so the
+        // text doesn't flip from white to black; only on a very light hover color does it turn dark.
+        Look GetLook(Config cfg, RingItem it, Palette pal, float t)
+        {
+            Look n = BaseLook(cfg, it, pal, false);
+            if (t <= 0) return n;
+            Look h = BaseLook(cfg, it, pal, true);
+            if (Theme.Contrast(n.Fg, h.Fill) >= KeepTextContrast) h.Fg = n.Fg;
+            if (t >= 1) return h;
+            t = t * t * (3 - 2 * t); // ease in and out
+            Look l = new Look();
+            l.Fill = Theme.Mix(n.Fill, h.Fill, t);
+            l.Fg = Theme.Mix(n.Fg, h.Fg, t);
+            l.Grow = h.Grow * t;
+            l.Outline = h.Outline * t;
+            return l;
+        }
+
+        // Lenient on purpose: white on the default orange (about 2.2:1) stays white, yellow turns dark.
+        const float KeepTextContrast = 2f;
+
+        Look BaseLook(Config cfg, RingItem it, Palette pal, bool hot)
         {
             Look l = new Look();
             l.Fill = ButtonColor(cfg, it, pal);
@@ -446,7 +469,7 @@ namespace QuickCut
                         l.Fill = Theme.Lum(l.Fill) > 0.55f ? Color.FromArgb(32, 32, 36) : Color.FromArgb(245, 245, 247);
                         break;
                     case "outline":
-                        l.Outline = true;
+                        l.Outline = 1;
                         break;
                     case "grow":
                         l.Fill = pal.Accent;
@@ -471,23 +494,43 @@ namespace QuickCut
             using (StringFormat sf = LabelFormat())
             {
                 for (int i = 0; i < n; i++)
-                    DrawSegment(g, cfg, pal, L, sf, i, i == hover || i == selected, i == selected);
-                DrawCenter(g, cfg, pal, L, sf, hover == HitCenter || selected == HitCenter, selected == HitCenter);
+                    DrawSegment(g, cfg, pal, L, sf, i, i == hover || i == selected ? 1 : 0, i == selected);
+                DrawCenter(g, cfg, pal, L, sf, hover == HitCenter || selected == HitCenter ? 1 : 0, selected == HitCenter);
             }
         }
 
-        // Turns a frame that holds the ring with nothing hovered (Draw with hover = HitNone) into the
-        // ring with `hover` lit, by redrawing only that button instead of all of them.
-        // Everything the button drew in its normal look is wiped back to the bare ring first. Labels
-        // can poke a little into a neighbour's wedge, so the neighbours are redrawn inside that area,
-        // in the same order as Draw: previous button, hovered button, next button.
         public void DrawHover(Graphics g, Config cfg, Palette pal, int hover, bool shadow)
         {
+            DrawHover(g, cfg, pal, new[] { hover }, new[] { 1f }, shadow);
+        }
+
+        // Turns a frame that holds the ring with nothing hovered (Draw with hover = HitNone) into the
+        // ring with buttons `ids` lit, each `ts` of the way into its hover look (a hover fading in and
+        // the one fading out), by redrawing only those buttons instead of all of them.
+        // Everything they drew in their normal look is wiped back to the bare ring first. Labels can
+        // poke a little into a neighbour's wedge, so the neighbours are redrawn inside that area, in the
+        // same order as Draw.
+        public void DrawHover(Graphics g, Config cfg, Palette pal, int[] ids, float[] ts, bool shadow)
+        {
             int n = cfg.Items.Count;
-            if (hover != HitCenter && (hover < 0 || hover >= n)) return;
+            float[] segT = new float[n];
+            bool[] lit = new bool[n];
+            float centerT = -1; // < 0: the center isn't lit
             Layout L = GetLayout(g, n);
+            Region area = null;
+            for (int k = 0; k < ids.Length; k++)
+            {
+                int id = ids[k];
+                if (id == HitCenter) centerT = Math.Max(centerT, ts[k]);
+                else if (id >= 0 && id < n) { lit[id] = true; segT[id] = Math.Max(segT[id], ts[k]); }
+                else continue;
+                Region a = HoverArea(L, id);
+                if (area == null) area = a;
+                else { area.Union(a); a.Dispose(); }
+            }
+            if (area == null) return;
             using (StringFormat sf = LabelFormat())
-            using (Region area = HoverArea(L, hover))
+            using (area)
             {
                 // Same modes for every step: the pixel offset mode shifts which pixels a clip covers.
                 SetModes(g);
@@ -498,22 +541,18 @@ namespace QuickCut
                 using (SolidBrush clear = new SolidBrush(Color.Transparent)) g.FillRectangle(clear, -1, -1, Size + 2, Height + 2);
                 g.CompositingMode = CompositingMode.SourceOver;
                 DrawBackground(g, pal, shadow);
-                if (hover == HitCenter)
+                // Lit buttons are drawn whole; their neighbours only inside the wiped area.
+                bool[] redraw = new bool[n];
+                for (int i = 0; i < n; i++)
+                    if (lit[i]) { redraw[i] = true; redraw[(i + n - 1) % n] = true; redraw[(i + 1) % n] = true; }
+                for (int i = 0; i < n; i++)
                 {
-                    g.ResetClip();
-                    DrawCenter(g, cfg, pal, L, sf, true, false);
-                    return;
+                    if (!redraw[i]) continue;
+                    if (lit[i]) g.ResetClip(); else g.SetClip(area, CombineMode.Replace);
+                    DrawSegment(g, cfg, pal, L, sf, i, lit[i] ? segT[i] : 0, false);
                 }
-                int prev = (hover + n - 1) % n, next = (hover + 1) % n;
-                if (n > 1) DrawSegment(g, cfg, pal, L, sf, prev, false, false);
                 g.ResetClip();
-                DrawSegment(g, cfg, pal, L, sf, hover, true, false);
-                if (n > 2)
-                {
-                    g.SetClip(area, CombineMode.Replace);
-                    DrawSegment(g, cfg, pal, L, sf, next, false, false);
-                    g.ResetClip();
-                }
+                if (centerT >= 0) DrawCenter(g, cfg, pal, L, sf, centerT, false);
             }
         }
 
@@ -608,7 +647,7 @@ namespace QuickCut
             return sf;
         }
 
-        void DrawSegment(Graphics g, Config cfg, Palette pal, Layout L, StringFormat sf, int i, bool hot, bool selected)
+        void DrawSegment(Graphics g, Config cfg, Palette pal, Layout L, StringFormat sf, int i, float hot, bool selected)
         {
             RingItem it = cfg.Items[i];
             Look l = GetLook(cfg, it, pal, hot);
@@ -624,7 +663,7 @@ namespace QuickCut
             DrawLabel(g, it.Label, l.Fg, l.Fill, lr);
         }
 
-        void DrawCenter(Graphics g, Config cfg, Palette pal, Layout L, StringFormat sf, bool hot, bool selected)
+        void DrawCenter(Graphics g, Config cfg, Palette pal, Layout L, StringFormat sf, float hot, bool selected)
         {
             Look c = GetLook(cfg, cfg.Center, pal, hot);
             float rc = RCenter + c.Grow / 2;
@@ -682,10 +721,11 @@ namespace QuickCut
             }
         }
 
-        void Outline(Graphics g, GraphicsPath p, Palette pal, bool hoverOutline, bool selected)
+        // hoverOutline: how strongly the accent outline shows, 0..1.
+        void Outline(Graphics g, GraphicsPath p, Palette pal, float hoverOutline, bool selected)
         {
-            if (hoverOutline)
-                using (Pen pen = new Pen(pal.Accent, 3 * Sc)) g.DrawPath(pen, p);
+            if (hoverOutline > 0)
+                using (Pen pen = new Pen(Color.FromArgb((int)Math.Round(255 * Math.Min(1, hoverOutline)), pal.Accent), 3 * Sc)) g.DrawPath(pen, p);
             if (selected)
                 using (Pen pen = new Pen(pal.Text, 2 * Sc) { DashStyle = DashStyle.Dash }) g.DrawPath(pen, p);
         }

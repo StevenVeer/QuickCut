@@ -499,15 +499,17 @@ namespace QuickCut
                 bool vol = Cfg != null && Cfg.VolumeBar, med = Cfg != null && Cfg.MediaBar;
                 // Sized so the largest ring, with its panels, still fits.
                 float tall = 320f + RingRenderer.PanelsExtra(vol, med);
-                // Width keeps room for Large, so the sizes still look different; height only has to fit this one.
-                float scale = Math.Min(Width / (320f * 1.25f) * factor, Height / (tall * 1.03f));
+                // Large fills the space; the smaller sizes stay a step below it (gentler than their real
+                // ratio, so they stay readable), so the sizes still look different.
+                float fit = Math.Min(Width / (320f * 1.02f), Height / (tall * 1.03f));
+                float scale = fit * Math.Min(1f, factor / 1.1f);
                 int want = (int)Math.Round(320 * scale);
                 if (rr == null || rrSize != want || rr.VolumeBar != vol || rr.MediaBar != med)
                 {
                     if (rr != null) rr.Dispose();
-                    // Panel text near real size and labels a bit smaller (they must fit their buttons),
-                    // so the preview's text stays readable and sharp.
-                    rr = new RingRenderer(scale, factor, vol, med, 0.9f * S, 0.85f * S);
+                    // Panel text and labels near real size, so the preview's text stays readable and sharp.
+                    // Labels at ~10 px came out squeezed together (Windows' hinting at that size), so ~11 px.
+                    rr = new RingRenderer(scale, factor, vol, med, 0.9f * S, 0.96f * S);
                     rrSize = want;
                 }
                 return rr;
