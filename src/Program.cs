@@ -16,7 +16,7 @@ namespace QuickCut
         // The one place to change the version. The exe, the bug report link in Settings and the Store
         // package (build-store.cmd stamps it into the manifest) all take it from here.
         // Store rule: raise it for every Store update, and the last number must stay 0.
-        public const string Version = "1.0.0.0";
+        public const string Version = "1.1.0.0";
 
         [STAThread]
         static int Main(string[] args)
