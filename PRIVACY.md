@@ -1,6 +1,6 @@
 # QuickCut Privacy Policy
 
-*Last updated: November 4, 2026*
+*Last updated: November 18, 2026*
 
 QuickCut is published by Ringside. This policy explains what QuickCut does with your information.
 
@@ -14,13 +14,16 @@ analytics and no tracking, and it never connects to the internet on its own.
 To work, QuickCut uses some information on your own computer. None of it leaves your PC.
 
 - **Your settings** (your buttons, shortcut and preferences) are saved in a file at
-  `%APPDATA%\QuickCut\config.ini`. You can delete it at any time. The Store version keeps its
+  `%APPDATA%\QuickCut\config.ini`. Images you choose as button icons are copied next to it, into
+  `%APPDATA%\QuickCut\icons`. You can delete these at any time. The Store version keeps its
   files in its own app folder instead, which Windows removes when you uninstall QuickCut.
 - **Installed apps and their icons** are read so you can pick an app for a button.
 - **Open windows** are read when you use a button that switches between windows.
 - **What's playing** (title, artist and cover art from apps like Spotify or your browser) is
   read from Windows to show under the ring and to control playback.
 - **System volume** is read and changed when you use the volume controls.
+- **Apps playing sound**: for per-app volume, QuickCut reads which apps are running or playing
+  sound (their program name and icon), and reads and changes the volume of the apps you chose.
 - **Error details**: if something goes wrong, QuickCut writes what happened to
   `%APPDATA%\QuickCut\crash.log`, so you can attach it to a bug report if you want. It is never
   sent anywhere.
