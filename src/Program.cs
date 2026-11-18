@@ -150,9 +150,15 @@ namespace QuickCut
         public App()
         {
             Instance = this;
-            ThreadPool.QueueUserWorkItem(delegate { Autostart.Repair(); }); // runs schtasks.exe: not on the UI thread
             bool firstRun;
             cfg = Config.Load(out firstRun);
+            // A fresh install (no settings file yet) starts with Windows; the user can turn it off in
+            // settings. Runs schtasks.exe or waits on WinRT: not on the UI thread.
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Autostart.Repair();
+                if (firstRun) Autostart.Set(true);
+            });
             ring = new RingForm(cfg);
             msgWin = new MessageWindow(this);
 
