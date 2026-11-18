@@ -37,7 +37,7 @@ namespace QuickCutTests
         static void RoundTrip(string dir)
         {
             Config src = new Config();
-            src.ThemeMode = "dark"; src.HoverStyle = "grow"; src.Accent = "#3DDC97"; src.ButtonColor = "#1F3A5F"; src.RingSize = "large";
+            src.ThemeMode = "dark"; src.HoverStyle = "grow"; src.Accent = "#3DDC97"; src.ButtonColor = "#1F3A5F"; src.RingSize = "small";
             src.Center = new RingItem(ActionType.Media, "Play", "playpause");
             RingItem url = new RingItem(ActionType.Url, "Mail", "https://mail.example.com/?a=1|2"); url.ColorHex = "#112233";
             src.Items.Add(url);
@@ -64,7 +64,7 @@ namespace QuickCutTests
             ConfigTransfer.ApplyTo(r.Config, mine);
 
             Check("look comes back the same", mine.ThemeMode == "dark" && mine.HoverStyle == "grow" && mine.Accent == "#3DDC97"
-                && mine.ButtonColor == "#1F3A5F" && mine.RingSize == "large");
+                && mine.ButtonColor == "#1F3A5F" && mine.RingSize == "small");
             Check("center button comes back the same", mine.Center.Serialize() == src.Center.Serialize());
             bool same = mine.Items.Count == src.Items.Count;
             for (int i = 0; same && i < 3; i++) same = mine.Items[i].Serialize() == src.Items[i].Serialize();

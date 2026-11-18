@@ -8,13 +8,19 @@ launch programs, open websites, control media (Spotify, YouTube, ...) or send ke
 - **Hold**, move towards a button and release to pick it (with double right-click: hold the second click)
 - A quick tap keeps the ring open: click a button or press 1-9, 0, -, = (buttons 1-12), Space = center,
   scroll = volume, Esc = close
-- Volume blocks under the ring: click − / + (hold to repeat) or a block; click the lit block to mute.
-  Steps of 5% or 10%, and the blocks can be hidden (Settings > General > Volume)
-- Center = default button (Play/Pause), surrounded by up to 12 buttons of your own
-- Settings: click the tray icon, or start the exe again
+- Volume blocks by the ring: click − / + (hold to repeat) or a block; click the lit block to mute.
+  Steps of 5% or 10%, and the blocks can be hidden (Settings > Volume). The volume and song panels
+  go below, above, left or right of the ring.
+- Per-app volume: apps you add in Settings > Volume (Spotify, Discord, a game, ...) get their own row
+  of blocks while they're running. Scroll over a row to change that app, click its icon to mute it.
+  An app's row waits for sound until it has played something (Windows only gives an app its own
+  volume then). Windows remembers each app's level between restarts.
+- Center = default button (Play/Pause), surrounded by up to 12 buttons of your own. Shortcut and
+  website buttons can use a built-in icon, the label's first letter, or your own image.
+- Settings: click the tray icon, or start the exe again. The preview shows the ring at its real size.
 - Settings are stored in `%APPDATA%\QuickCut\config.ini` (Store version:
   `%LOCALAPPDATA%\Packages\Ringside.QuickCut_<id>\LocalCache\Roaming\QuickCut\config.ini`, removed
-  when you uninstall it)
+  when you uninstall it). Your own button images are copied into the `icons` folder next to it.
 - Shortcut buttons (key combinations) can't send keys to apps running as administrator: Windows
   blocks that for programs that aren't elevated themselves, and QuickCut doesn't ask for admin rights.
 

@@ -1,55 +1,74 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
 namespace QuickCut
 {
-    // Settings: a live ring preview on the left, three tabs on the right. Changes apply right away.
-    // Import / export lives in SettingsForm.Transfer.cs.
+    // Settings, as a dashboard: a rail with the four pages on the left, the live preview of the ring at
+    // its real size in the middle (a "stage"), and the page's settings as cards on the right. Changes
+    // apply right away. The Volume page is in SettingsForm.Volume.cs, import / export in .Transfer.cs.
     partial class SettingsForm : Form
     {
         static readonly string[] ThemeIds = { "system", "light", "dark" };
         static readonly string[] HoverIds = { "fill", "invert", "outline", "grow" };
-        static readonly string[] SizeIds = { "small", "medium", "large" };
+        static readonly string[] SizeIds = { "small", "medium" };
+        static readonly string[] NavIcons = { "nav-buttons", "nav-look", "nav-volume", "nav-general" };
+
+        // Layout, in unscaled pixels. The window grows with the preview (left / right panels, app rows,
+        // a large ring) and with the tallest page; this is its smallest size.
+        const float RailW = 76, Pad = 24, Gap = 20, ColW = 400, ContentTop = 82, MinStageW = 368, MinStageH = 670, CardGap = 12;
+        const float BaseW = RailW + Pad + MinStageW + Gap + ColW + Pad, BaseH = ContentTop + MinStageH + Pad;
 
         readonly App app;
         readonly Config work;
         readonly float sc;
-        readonly Timer commitTimer;
+        readonly Timer commitTimer, liveTimer;
         readonly UserPreferenceChangedEventHandler prefChanged;
         readonly Icon windowIcon; // a Form doesn't dispose its Icon, so the window does it itself
         Palette pal;
         bool loading;
+        Rectangle workArea; // of the screen the window opened on
+        int page;
 
-        readonly Segmented tabs;
+        readonly NavRail rail;
+        readonly NavButton[] nav = new NavButton[4];
+        readonly Label lblPageTitle, lblPageSub;
+        readonly StatusPill status;
         readonly RingPreview preview;
-        readonly FlatButton btnLeft, btnAdd, btnRight;
-        readonly Panel pnlButtons, pnlAppearance, pnlGeneral;
+        readonly PillToolbar toolbar;
+        readonly Panel pnlButtons, pnlLook, pnlVolume, pnlGeneral;
+        Panel[] pages;
 
-        // Buttons tab
-        Label lblTitle;
-        FlatButton btnRemove, btnTest;
-        Tile[] typeTiles, mediaTiles;
-        Panel subApp, subWeb, subMedia, subKeys;
+        // Buttons page
+        Label lblCaption, lblItemColorName;
+        FieldBox labelField, argsField, urlField;
+        FlatButton btnRemove, btnChangeApp, lnkBrowse, lnkArgs;
+        ChoiceTile[] typeTiles;
+        Card appCard, webCard, mediaCard, keysCard, colorCard;
+        Label lblArgs;
         AppDisplay appDisplay;
-        FieldBox argsField, urlField, keysField, labelField;
-        HotkeyBox keysBox;
-        ColorChooser itemColor;
+        ChipGroup mediaChips;
+        KeyRecorder keysRec;
+        IconPicker iconPicker;
+        Swatches itemColor;
+        bool showArgs;
 
-        // Appearance tab
-        Segmented themeSeg, hoverSeg, sizeSeg;
-        ColorChooser allColor, accentColor;
-        Label lblSize, lblHoverStyle, lblPreviewHint;
+        // Look page
+        ChoiceTile[] themeTiles, hoverTiles;
+        Segmented sizeSeg;
+        Swatches allColor, accentColor;
+        Label lblAllColorName, lblAccentName;
 
-        // General tab
-        ToggleSwitch tgMouse, tgFullscreen, tgAutostart, tgNotice, tgVolume, tgMedia;
-        Segmented stepSeg;
-        HotkeyBox hotkeyBox;
+        // General page
+        Card openCard, startCard;
+        SettingRow rowMouse, rowFullscreen, rowHotkey, rowAutostart, rowNotice;
+        KeyRecorder hotkeyRec;
         Label lblHotkeyError;
-
-        Label lblStatus; // "Saving..." / "All changes saved"
+        ChoiceTile[] toolTiles;
+        IconLink lnkBug, lnkIdea;
 
         public SettingsForm(App app, Config cfg)
         {
@@ -66,58 +85,70 @@ namespace QuickCut
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(S(780), S(666));
-            Rectangle wa = Screen.FromPoint(m).WorkingArea;
+            ClientSize = new Size(S(BaseW), S(BaseH));
+            Rectangle wa = workArea = Screen.FromPoint(m).WorkingArea;
             StartPosition = FormStartPosition.Manual;
-            Location = new Point(wa.X + Math.Max(0, (wa.Width - Width) / 2), wa.Y + Math.Max(0, (wa.Height - Height) / 2));
             Icon = windowIcon = Art.CreateIcon(32);
 
-            Label title = AddLabel(this, "QuickCut", 22, 18, 110, 30, null);
-            title.Font = F("Segoe UI Semibold", 13f);
-            lblStatus = AddLabel(this, "", 136, 24, 280, 22, "muted"); // empty until something changes
-            tabs = Add(this, new Segmented(Str.Tabs), 430, 16, 330, 36);
-            tabs.SelectedIndexChanged += delegate { ShowTab(); };
+            rail = Add(this, new NavRail(), 0, 0, RailW, BaseH);
+            rail.Text = string.Format(Str.Version, AppVersion());
+            for (int i = 0; i < 4; i++)
+            {
+                int pi = i;
+                nav[i] = Add(rail, new NavButton(NavIcons[i], Str.PageNames[i]), 7, 14 + i * 64, 62, 58);
+                nav[i].Click += delegate { ShowPage(pi); };
+            }
 
-            Card left = Add(this, new Card(), 20, 64, 340, 582);
-            preview = Add(left, new RingPreview(), 8, 6, 324, 412);
+            lblPageTitle = AddLabel(this, "", RailW + Pad, 12, 420, 34, "pagetitle");
+            lblPageSub = AddLabel(this, "", RailW + Pad, 46, 520, 20, "pagesub");
+            status = Add(this, new StatusPill(), 0, 22, 260, 34);
+
+            preview = Add(this, new RingPreview(), RailW + Pad, ContentTop, MinStageW, MinStageH);
             preview.Cfg = work;
             preview.Selected = work.Items.Count > 0 ? 0 : RingRenderer.HitCenter;
-            preview.SelectedChanged += delegate { tabs.SelectedIndex = 0; LoadEditor(); };
+            preview.SelectedChanged += delegate { ShowPage(0); LoadEditor(); };
             preview.Reordered += delegate { LoadEditor(); Changed(); };
-            // Circular arrows: "left/right" is ambiguous on a circle (it flips at the bottom).
-            Font arrows = F("Segoe UI Symbol", 10.5f); // has the ↺ ↻ glyphs
-            btnLeft = Add(left, new FlatButton(Str.MoveLeft, FlatButton.Kind.Normal), 20, 424, 88, 34);
-            btnAdd = Add(left, new FlatButton(Str.AddButton, FlatButton.Kind.Normal), 116, 424, 108, 34);
-            btnRight = Add(left, new FlatButton(Str.MoveRight, FlatButton.Kind.Normal), 232, 424, 88, 34);
-            btnLeft.Font = btnRight.Font = arrows;
-            ToolTip tips = new ToolTip();
-            tips.SetToolTip(btnLeft, Str.MoveCounterClockwise);
-            tips.SetToolTip(btnRight, Str.MoveClockwise);
-            btnLeft.Click += delegate { MoveItem(-1); };
-            btnRight.Click += delegate { MoveItem(1); };
-            btnAdd.Click += delegate { AddItem(); };
-            btnTest = Add(left, new FlatButton(Str.Test, FlatButton.Kind.Normal), 20, 466, 300, 34);
-            btnTest.Click += delegate
-            {
-                try { Actions.Execute(Current); }
-                catch (Exception ex) { MessageBox.Show(this, ex.Message, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-            };
-            lblPreviewHint = AddLabel(left, Str.PreviewHint, 20, 508, 300, 38, "muted"); // text follows the tab, see ShowTab
 
-            Card right = Add(this, new Card(), 376, 64, 384, 582);
-            pnlButtons = Add(right, new Panel(), 16, 14, 352, 488);
-            pnlAppearance = Add(right, new Panel(), 16, 14, 352, 488);
-            pnlGeneral = Add(right, new Panel(), 16, 14, 352, 562); // a bit taller: room for the shortcut error line
+            toolbar = new PillToolbar();
+            toolbar.Items.Add(new PillToolbar.Item { Icon = "ccw", Tip = Str.MoveCounterClockwise });
+            toolbar.Items.Add(new PillToolbar.Item { Icon = "plus", Text = Str.AddButton });
+            toolbar.Items.Add(new PillToolbar.Item { Icon = "cw", Tip = Str.MoveClockwise });
+            toolbar.Items.Add(new PillToolbar.Item { Icon = "play", Text = Str.TestShort, Primary = true });
+            toolbar.ItemClicked += delegate(int i)
+            {
+                if (i == 0) MoveItem(-1);
+                else if (i == 1) AddItem();
+                else if (i == 2) MoveItem(1);
+                else
+                {
+                    try { Actions.Execute(Current); }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                }
+            };
+            preview.Controls.Add(toolbar);
+
+            float colX = RailW + Pad + MinStageW + Gap;
+            pnlButtons = Add(this, new Panel(), colX, ContentTop, ColW, MinStageH);
+            pnlLook = Add(this, new Panel(), colX, ContentTop, ColW, MinStageH);
+            pnlVolume = Add(this, new Panel(), colX, ContentTop, ColW, MinStageH);
+            pnlGeneral = Add(this, new Panel(), colX, ContentTop, ColW, MinStageH);
+            pages = new[] { pnlButtons, pnlLook, pnlVolume, pnlGeneral };
 
             commitTimer = new Timer();
             commitTimer.Interval = 300;
             commitTimer.Tick += delegate { Commit(); };
+            // The mixer rows and the preview's app rows follow the apps' sound while the Volume page shows.
+            liveTimer = new Timer();
+            liveTimer.Interval = 1000;
+            liveTimer.Tick += delegate { if (page == 2 && Visible) { mixerList.Invalidate(); preview.Invalidate(); } };
+            liveTimer.Start();
 
             // Setting the saved values fires change events; loading keeps them from counting as edits.
             loading = true;
-            BuildButtonsTab();
-            BuildAppearanceTab();
-            BuildGeneralTab();
+            BuildButtonsPage();
+            BuildLookPage();
+            BuildVolumePage();
+            BuildGeneralPage();
             loading = false;
 
             prefChanged = delegate(object s, UserPreferenceChangedEventArgs e)
@@ -126,26 +157,27 @@ namespace QuickCut
             };
             SystemEvents.UserPreferenceChanged += prefChanged;
 
+            SetStatus(Str.AllSaved, "muted");
             ApplyTheme();
-            ShowTab();
+            ShowPage(0);
             LoadEditor();
             RefreshHotkeyWarning();
+            Location = new Point(wa.X + Math.Max(0, (wa.Width - Width) / 2), wa.Y + Math.Max(0, (wa.Height - Height) / 2));
             if (app != null) AppCatalog.RefreshInBackground(); // so "Pick app" opens instantly
-            ActiveControl = tabs;
+            ActiveControl = nav[0];
         }
 
         // ---------- layout helpers ----------
 
         int S(float v) { return (int)Math.Round(v * sc); }
 
-        // The layout is a fixed 780 x 666 plus the title bar and border. On a small screen with a large
-        // scale (e.g. 1080p at 175%) that runs off the bottom, so everything is drawn a bit smaller
-        // instead. When it fits, the monitor's own scale is used unchanged.
+        // At the monitor's own scale when the window fits; on a small screen with a large scale (1080p at
+        // 175%, say) everything is drawn a bit smaller instead of running off the bottom.
         internal static float FitScale(float scale, Rectangle workArea)
         {
             // Title bar and borders, generously; they follow the monitor's real scale.
             float frameW = 8 * scale, frameH = 32 * scale;
-            float fit = Math.Min((workArea.Width - frameW) / 780f, (workArea.Height - frameH) / 666f);
+            float fit = Math.Min((workArea.Width - frameW) / BaseW, (workArea.Height - frameH) / BaseH);
             return Math.Max(0.5f, Math.Min(scale, fit));
         }
 
@@ -159,245 +191,453 @@ namespace QuickCut
             return c;
         }
 
-        // tag: null = normal text, "muted", "danger" or "heading"
+        void Place(Control c, float x, float y, float w, float h) { c.Bounds = new Rectangle(S(x), S(y), S(w), S(h)); }
+
+        // tag: null = normal text, "muted", "danger", "title" (card title), "desc" (small muted line),
+        // "pagetitle", "pagesub"; "right" can follow, for right-aligned text ("desc right").
         Label AddLabel(Control parent, string text, float x, float y, float w, float h, string tag)
         {
             Label l = Add(parent, new Label(), x, y, w, h);
             l.Text = text;
             l.Tag = tag;
-            if (tag == "heading") l.Font = F("Segoe UI Semibold", 10.5f);
+            l.UseMnemonic = false;
+            l.AutoEllipsis = true;
+            string t = tag ?? "";
+            if (t.StartsWith("title")) l.Font = Ui.Font(14, true);
+            else if (t.StartsWith("desc")) l.Font = Ui.Font(12, false);
+            else if (t == "pagetitle") l.Font = Ui.Font(22, true);
+            else if (t == "pagesub") l.Font = Ui.Font(13, false);
+            if (t.EndsWith("right")) l.TextAlign = ContentAlignment.TopRight;
             return l;
         }
 
         FieldBox AddField(Control parent, TextBox box, float x, float y, float w)
         {
-            return Add(parent, new FieldBox(box), x, y, w, 34);
+            return Add(parent, new FieldBox(box), x, y, w, 36);
         }
 
-        // ---------- tabs ----------
+        Card AddCard(Panel page) { return Add(page, new Card(), 0, 0, ColW, 60); }
 
-        void BuildButtonsTab()
+        // ---------- pages ----------
+
+        void ShowPage(int i)
+        {
+            page = i;
+            for (int k = 0; k < 4; k++) { nav[k].Selected = k == i; pages[k].Visible = k == i; }
+            lblPageTitle.Text = Str.PageNames[i];
+            lblPageSub.Text = Str.PageSubs[i];
+            preview.Hint = i == 1 ? Str.HoverHint.TrimEnd('.') : i == 2 ? Str.StageHintVolume : i == 3 ? string.Format(Str.StageHintGeneral, work.Hotkey) : "";
+            toolbar.Visible = i == 0;
+            if (i == 2) preview.RefreshMixer();
+            preview.Invalidate();
+        }
+
+        // The window around the preview and the pages: the preview shows the ring at its real size, so the
+        // stage (and the window) grows to fit it, and to fit the tallest page. Only when the screen is too
+        // small for that is the preview drawn smaller.
+        string layoutKey;
+
+        void LayoutWindow()
+        {
+            bool vol = work.VolumeBar;
+            int rows = vol ? work.MixerApps.Count : 0;
+            SizeF ext = RingRenderer.Extent(vol, work.MediaBar, work.PanelPos, rows);
+            float frameW = Width - ClientSize.Width, frameH = Height - ClientSize.Height;
+            float roomW = (workArea.Width - frameW) / sc - (RailW + Pad + Gap + ColW + Pad) - 48;
+            float roomH = (workArea.Height - frameH) / sc - (ContentTop + Pad) - 48 - RingPreview.BottomStrip;
+            float rs = Math.Max(0.4f, Math.Min(work.SizeFactor, Math.Min(roomW / ext.Width, roomH / ext.Height)));
+            float stageW = Math.Max(MinStageW, (float)Math.Ceiling(ext.Width * rs) + 48);
+            float stageH = Math.Max(MinStageH, (float)Math.Ceiling(ext.Height * rs) + 48 + RingPreview.BottomStrip);
+            stageH = Math.Max(stageH, Math.Max(Math.Max(buttonsH, volumeH), Math.Max(lookH, generalH)));
+            string key = stageW + "x" + stageH + ":" + rs;
+            preview.RealScale = sc * rs;
+            if (key == layoutKey) return;
+            layoutKey = key;
+
+            SuspendLayout();
+            float colX = RailW + Pad + stageW + Gap;
+            Place(rail, 0, 0, RailW, ContentTop + stageH + Pad);
+            Place(preview, RailW + Pad, ContentTop, stageW, stageH);
+            foreach (Panel p in pages) Place(p, colX, ContentTop, ColW, stageH);
+            Place(status, colX + ColW - 260, 22, 260, 34);
+            ClientSize = new Size(S(colX + ColW + Pad), S(ContentTop + stageH + Pad));
+            PlaceToolbar();
+            ResumeLayout();
+            // Keep the window on the screen as it grows.
+            if (IsHandleCreated)
+            {
+                int x = Math.Max(workArea.Left, Math.Min(Left, workArea.Right - Width));
+                int y = Math.Max(workArea.Top, Math.Min(Top, workArea.Bottom - Height));
+                if (x != Left || y != Top) Location = new Point(x, y);
+            }
+            Invalidate(true);
+        }
+
+        void PlaceToolbar()
+        {
+            int w = toolbar.PreferredWidth(), h = S(46);
+            toolbar.Bounds = new Rectangle((preview.Width - w) / 2, preview.Height - S(RingPreview.BottomStrip) + (S(RingPreview.BottomStrip) - h) / 2, w, h);
+        }
+
+        // ---------- Buttons page ----------
+
+        float buttonsH, lookH, volumeH, generalH; // each page's height, for the window's
+
+        void BuildButtonsPage()
         {
             Panel p = pnlButtons;
-            lblTitle = AddLabel(p, "", 0, 0, 260, 26, "heading");
-            btnRemove = Add(p, new FlatButton(Str.Remove, FlatButton.Kind.Danger), 290, 0, 62, 26);
+            lblCaption = AddLabel(p, "", 0, 0, 280, 18, "desc");
+            labelField = Add(p, new FieldBox(new TextBox()), 0, 22, 280, 40);
+            labelField.Box.Font = Ui.Font(15, true);
+            labelField.Box.TextChanged += delegate
+            {
+                if (loading) return;
+                Current.Label = labelField.Box.Text;
+                iconPicker.Invalidate(); // the letter icon and an image's name follow the label
+                Changed();
+            };
+            btnRemove = Add(p, new FlatButton(Str.Remove, FlatButton.Kind.DangerBox), 292, 22, 108, 40);
+            btnRemove.IconName = "trash";
             btnRemove.Click += delegate { RemoveItem(); };
 
-            AddLabel(p, Str.WhatShouldItDo, 0, 34, 352, 20, "muted");
-            Action<Graphics, RectangleF, Color>[] glyphs = {
-                Art.DrawApps, Art.DrawGlobe, (g, r, c) => Art.DrawMedia(g, "playpause", r, c), Art.DrawKeyboard };
-            typeTiles = new Tile[4];
+            string[] typeIcons = { "apps", "globe", "media", "keyboard" };
+            typeTiles = new ChoiceTile[4];
             for (int i = 0; i < 4; i++)
             {
                 ActionType t = (ActionType)i;
-                typeTiles[i] = Add(p, new Tile(Str.TypeTiles[i], glyphs[i]), i * 90, 56, 82, 66);
+                typeTiles[i] = Add(p, new ChoiceTile(Str.TypeTiles[i], typeIcons[i]), i * 102, 74, 94, 76);
                 typeTiles[i].Click += delegate { ChangeType(t); };
             }
 
-            // One sub panel per type, all in the same spot.
-            subApp = Add(p, new Panel(), 0, 132, 352, 142);
-            AddLabel(subApp, Str.AppLabel, 0, 0, 200, 20, "muted");
-            appDisplay = Add(subApp, new AppDisplay(), 0, 20, 308, 36);
+            appCard = AddCard(p);
+            AddLabel(appCard, Str.AppLabel, 16, 14, 200, 18, "desc");
+            appDisplay = Add(appCard, new AppDisplay(), 16, 40, 260, 44);
             appDisplay.Click += delegate { PickApp(); };
-            FlatButton pick = Add(subApp, new FlatButton("⋯", FlatButton.Kind.Normal), 316, 20, 36, 36); // ⋯
-            pick.Font = F("Segoe UI Symbol", 12f);
-            pick.Click += delegate { PickApp(); };
-            new ToolTip().SetToolTip(pick, Str.PickApp);
-            FlatButton browse = Add(subApp, new FlatButton(Str.BrowseFile, FlatButton.Kind.Link), 0, 60, 140, 22);
-            browse.Click += delegate { BrowseFile(); };
-            AddLabel(subApp, Str.Arguments, 0, 88, 200, 20, "muted");
-            argsField = AddField(subApp, new TextBox(), 0, 108, 352);
+            btnChangeApp = Add(appCard, new FlatButton(Str.Change, FlatButton.Kind.Normal), 300, 46, 84, 32);
+            btnChangeApp.Click += delegate { PickApp(); };
+            Add(appCard, new Divider(), 16, 96, 368, 1);
+            lnkBrowse = Add(appCard, new FlatButton(Str.BrowseFile, FlatButton.Kind.Link), 16, 108, 150, 22);
+            lnkBrowse.Click += delegate { BrowseFile(); };
+            lnkArgs = Add(appCard, new FlatButton(Str.AddArguments, FlatButton.Kind.Link), 180, 108, 150, 22);
+            lnkArgs.Click += delegate { showArgs = true; LayoutButtonsPage(); argsField.Box.Focus(); };
+            lblArgs = AddLabel(appCard, Str.Arguments, 16, 142, 300, 18, "desc");
+            argsField = AddField(appCard, new TextBox(), 16, 164, 368);
             argsField.Box.TextChanged += delegate { if (!loading) { Current.Args = argsField.Box.Text; Changed(); } };
 
-            subWeb = Add(p, new Panel(), 0, 132, 352, 142);
-            AddLabel(subWeb, Str.WebAddress, 0, 0, 200, 20, "muted");
-            urlField = AddField(subWeb, new TextBox(), 0, 20, 352);
+            webCard = AddCard(p);
+            AddLabel(webCard, Str.WebAddress, 16, 14, 200, 18, "desc");
+            urlField = AddField(webCard, new TextBox(), 16, 38, 368);
             urlField.Box.TextChanged += delegate { if (!loading) { Current.Target = urlField.Box.Text; Changed(); } };
 
-            subMedia = Add(p, new Panel(), 0, 132, 352, 142);
-            AddLabel(subMedia, Str.MediaAction, 0, 0, 200, 20, "muted");
-            mediaTiles = new Tile[Actions.MediaIds.Length];
-            for (int i = 0; i < mediaTiles.Length; i++)
-            {
-                string id = Actions.MediaIds[i];
-                mediaTiles[i] = Add(subMedia, new Tile(Str.MediaShort[i], (g, r, c) => Art.DrawMedia(g, id, r, c)), (i % 4) * 90, 20 + (i / 4) * 60, 82, 54);
-                mediaTiles[i].Click += delegate { SetMedia(id); };
-            }
+            mediaCard = AddCard(p);
+            AddLabel(mediaCard, Str.MediaAction, 16, 14, 200, 18, "desc");
+            mediaChips = Add(mediaCard, new ChipGroup(), 16, 40, 368, 66);
+            mediaChips.Options = Str.MediaNames;
+            mediaChips.SelectedIndexChanged += delegate { SetMedia(Actions.MediaIds[mediaChips.SelectedIndex]); };
 
-            subKeys = Add(p, new Panel(), 0, 132, 352, 142);
-            AddLabel(subKeys, Str.KeysToSend, 0, 0, 200, 20, "muted");
-            keysBox = new HotkeyBox(false);
-            keysField = AddField(subKeys, keysBox, 0, 20, 352);
-            keysBox.ComboChanged += delegate
+            keysCard = AddCard(p);
+            AddLabel(keysCard, Str.KeysToSend, 16, 14, 200, 18, "desc");
+            keysRec = Add(keysCard, new KeyRecorder(false), 16, 38, 368, 36);
+            keysRec.ButtonText = Str.Change;
+            keysRec.Empty = Str.NotSet;
+            keysRec.Box.ComboChanged += delegate
             {
                 RingItem it = Current;
                 string old = it.Target;
-                it.Target = keysBox.Combo;
+                it.Target = keysRec.Combo;
                 if (it.Label.Length == 0 || it.Label == old) it.Label = it.Target;
                 LoadEditor();
                 Changed();
             };
 
-            AddLabel(p, Str.Label, 0, 282, 200, 20, "muted");
-            labelField = AddField(p, new TextBox(), 0, 302, 352);
-            labelField.Box.TextChanged += delegate { if (!loading) { Current.Label = labelField.Box.Text; Changed(); } };
+            iconPicker = Add(p, new IconPicker(), 0, 0, ColW, 214);
+            iconPicker.LabelText = delegate { return Current.Label; };
+            iconPicker.Changed += delegate { Current.Icon = iconPicker.Value; Changed(); };
 
-            itemColor = Add(p, ButtonChooser(Str.ButtonColor, Str.ItemColorModes), 0, 344, 352, ColorChooser.ClosedHeight);
-            itemColor.AutoColor = delegate
+            colorCard = AddCard(p);
+            AddLabel(colorCard, Str.ButtonColor, 16, 14, 200, 18, "desc");
+            lblItemColorName = AddLabel(colorCard, "", 200, 14, 184, 18, "desc right");
+            itemColor = Add(colorCard, new Swatches(), 11, 35, 378, 72);
+            itemColor.Entries.Add(new Swatches.Entry { Value = "", Name = Str.AutoColor, Color = delegate { return AllButtonsColor(); } });
+            AddPresets(itemColor, Palette.ButtonPresets, Str.ButtonPresetNames);
+            itemColor.PickerStart = delegate { return AllButtonsColor(); };
+            itemColor.Changed += delegate
             {
-                Color? c = Theme.ParseHex(work.ButtonColor);
-                return c.HasValue ? c.Value : pal.Button;
-            };
-            itemColor.Changed += delegate { Current.ColorHex = itemColor.Value; Changed(); };
-        }
-
-        static ColorChooser ButtonChooser(string title, string[] modes)
-        {
-            return new ColorChooser(title, modes, false, Palette.ButtonPresets, Str.ButtonPresetNames);
-        }
-
-        void BuildAppearanceTab()
-        {
-            Panel p = pnlAppearance;
-            AddLabel(p, Str.Theme, 0, 0, 200, 20, "muted");
-            // The reset link shares the first row, so the color grids have room to open below.
-            FlatButton reset = Add(p, new FlatButton(Str.ResetAppearance, FlatButton.Kind.Link), 172, -2, 180, 22);
-            reset.AlignRight = true;
-            themeSeg = Add(p, new Segmented(Str.ThemeOptions), 0, 20, 352, 36);
-            themeSeg.SelectedIndex = Math.Max(0, Array.IndexOf(ThemeIds, work.ThemeMode));
-            themeSeg.SelectedIndexChanged += delegate { work.ThemeMode = ThemeIds[themeSeg.SelectedIndex]; ApplyTheme(); Changed(); };
-
-            lblSize = AddLabel(p, Str.RingSize, 0, 0, 352, 20, "muted");
-            sizeSeg = Add(p, new Segmented(Str.SizeOptions), 0, 0, 352, 36);
-            sizeSeg.SelectedIndex = Math.Max(0, Array.IndexOf(SizeIds, work.RingSize));
-            sizeSeg.SelectedIndexChanged += delegate { work.RingSize = SizeIds[sizeSeg.SelectedIndex]; Changed(); };
-
-            allColor = Add(p, ButtonChooser(Str.ButtonColorAll, Str.ButtonColorModes), 0, 0, 352, ColorChooser.ClosedHeight);
-            allColor.AutoColor = delegate { return pal.Button; };
-            allColor.Value = work.ButtonColor;
-            allColor.Changed += delegate { work.ButtonColor = allColor.Value; Changed(); };
-            allColor.HeightChanged += delegate { LayoutAppearance(); };
-
-            accentColor = Add(p, new ColorChooser(Str.HoverColor, Str.HoverColorModes, true, Palette.HoverPresets, Str.HoverPresetNames),
-                0, 0, 352, ColorChooser.ClosedHeight);
-            accentColor.AutoColor = delegate { return Palette.DefaultAccent; };
-            accentColor.Value = work.Accent;
-            accentColor.Changed += delegate { work.Accent = accentColor.Value; ApplyTheme(); Changed(); };
-            accentColor.HeightChanged += delegate { LayoutAppearance(); };
-
-            lblHoverStyle = AddLabel(p, Str.HoverStyle, 0, 0, 352, 20, "muted");
-            hoverSeg = Add(p, new Segmented(Str.HoverOptions), 0, 0, 352, 36);
-            hoverSeg.SelectedIndex = Math.Max(0, Array.IndexOf(HoverIds, work.HoverStyle));
-            hoverSeg.SelectedIndexChanged += delegate { work.HoverStyle = HoverIds[hoverSeg.SelectedIndex]; Changed(); };
-            LayoutAppearance();
-
-            reset.Click += delegate
-            {
-                work.ThemeMode = "system"; work.HoverStyle = "fill"; work.Accent = ""; work.ButtonColor = ""; work.RingSize = "medium";
-                work.Center.ColorHex = "";
-                foreach (RingItem it in work.Items) it.ColorHex = "";
-                themeSeg.SelectedIndex = 0; hoverSeg.SelectedIndex = 0; sizeSeg.SelectedIndex = 1;
-                allColor.Value = ""; accentColor.Value = "";
-                ApplyTheme();
-                LoadEditor();
+                Current.ColorHex = itemColor.Value;
+                lblItemColorName.Text = itemColor.NameOf(itemColor.Value);
                 Changed();
             };
         }
 
-        // Stacks the Appearance settings; the color choosers grow when their grid is open.
-        void LayoutAppearance()
+        Color AllButtonsColor()
         {
-            const float gap = 12;
-            float y = 68; // below the theme row
-            lblSize.Top = S(y); sizeSeg.Top = S(y + 20); y += 56 + gap;
-            allColor.Top = S(y); y += allColor.Height / sc + gap;
-            accentColor.Top = S(y); y += accentColor.Height / sc + gap;
-            lblHoverStyle.Top = S(y); hoverSeg.Top = S(y + 20);
+            Color? c = Theme.ParseHex(work.ButtonColor);
+            return c.HasValue ? c.Value : pal.Button;
         }
 
-        void BuildGeneralTab()
+        static void AddPresets(Swatches s, string[] presets, string[] names)
+        {
+            for (int i = 0; i < presets.Length; i++)
+            {
+                Color c = Theme.ParseHex(presets[i]).Value;
+                s.Entries.Add(new Swatches.Entry { Value = presets[i], Name = names[i], Color = delegate { return c; } });
+            }
+        }
+
+        // Stacks the Buttons page: the parts for this button's type, then its icon and color.
+        void LayoutButtonsPage()
+        {
+            RingItem it = Current;
+            float y = 74 + 76 + CardGap;
+            bool app_ = it.Type == ActionType.Program, web = it.Type == ActionType.Url;
+            bool media = it.Type == ActionType.Media, keys = it.Type == ActionType.Keys;
+            appCard.Visible = app_; webCard.Visible = web; mediaCard.Visible = media; keysCard.Visible = keys;
+            iconPicker.Visible = web || keys;
+
+            bool args = showArgs || it.Args.Length > 0;
+            lblArgs.Visible = argsField.Visible = args;
+            lnkArgs.Visible = !args;
+            if (app_) { Place(appCard, 0, y, ColW, args ? 214 : 144); y += (args ? 214 : 144) + CardGap; }
+            if (web) { Place(webCard, 0, y, ColW, 88); y += 88 + CardGap; }
+            if (media)
+            {
+                int ch = mediaChips.PreferredHeight(S(368));
+                mediaChips.Height = ch;
+                float h = 40 + ch / sc + 16;
+                Place(mediaCard, 0, y, ColW, h);
+                y += h + CardGap;
+            }
+            if (keys) { Place(keysCard, 0, y, ColW, 88); y += 88 + CardGap; }
+            if (web || keys) { Place(iconPicker, 0, y, ColW, 214); y += 214 + CardGap; }
+            int sh = itemColor.PreferredHeight(S(378));
+            itemColor.Height = sh;
+            float colorH = 35 + sh / sc + 11;
+            Place(colorCard, 0, y, ColW, colorH);
+            y += colorH;
+            buttonsH = y;
+            LayoutWindow();
+        }
+
+        // ---------- Look page ----------
+
+        void BuildLookPage()
+        {
+            Panel p = pnlLook;
+            Card theme = AddCard(p);
+            Place(theme, 0, 0, ColW, 136);
+            AddLabel(theme, Str.ThemeTitle, 16, 14, 200, 22, "title");
+            FlatButton reset = Add(theme, new FlatButton(Str.ResetAppearance, FlatButton.Kind.Link), 200, 14, 184, 22);
+            reset.AlignRight = true;
+            reset.Click += delegate { ResetLook(); };
+            themeTiles = new ChoiceTile[3];
+            for (int i = 0; i < 3; i++)
+            {
+                string id = ThemeIds[i];
+                themeTiles[i] = Add(theme, new ChoiceTile(Str.ThemeOptions[i], ThemePicture(id)), 16 + i * 125, 44, 117, 78);
+                themeTiles[i].PictureHeight = 38;
+                themeTiles[i].Click += delegate { work.ThemeMode = id; SyncLook(); ApplyTheme(); Changed(); };
+            }
+
+            Card size = AddCard(p);
+            Place(size, 0, 148, ColW, 62);
+            AddLabel(size, Str.RingSize, 16, 10, 190, 22, "title");
+            AddLabel(size, Str.SizeDesc, 16, 32, 190, 18, "desc");
+            sizeSeg = Add(size, new Segmented(Str.SizeOptions), 232, 14, 152, 34);
+            sizeSeg.SelectedIndexChanged += delegate { if (!loading) { work.RingSize = SizeIds[sizeSeg.SelectedIndex]; Changed(); } };
+
+            Card hover = AddCard(p);
+            Place(hover, 0, 222, ColW, 130);
+            AddLabel(hover, Str.HoverStyle, 16, 14, 300, 22, "title");
+            hoverTiles = new ChoiceTile[4];
+            for (int i = 0; i < 4; i++)
+            {
+                string id = HoverIds[i];
+                hoverTiles[i] = Add(hover, new ChoiceTile(Str.HoverOptions[i], HoverPicture(id)), 16 + i * 94, 44, 86, 72);
+                hoverTiles[i].PictureHeight = 26;
+                hoverTiles[i].Click += delegate { work.HoverStyle = id; SyncLook(); Changed(); };
+            }
+
+            Card all = AddCard(p);
+            AddLabel(all, Str.ButtonColor, 16, 14, 200, 22, "title");
+            lblAllColorName = AddLabel(all, "", 200, 16, 184, 18, "desc right");
+            allColor = Add(all, new Swatches(), 11, 39, 378, 72);
+            allColor.Entries.Add(new Swatches.Entry { Value = "", Name = Str.AutoColor, Color = delegate { return pal.Button; } });
+            AddPresets(allColor, Palette.ButtonPresets, Str.ButtonPresetNames);
+            allColor.PickerStart = delegate { return pal.Button; };
+            allColor.Changed += delegate { work.ButtonColor = allColor.Value; SyncLook(); Changed(); };
+
+            Card accent = AddCard(p);
+            AddLabel(accent, Str.HoverColor, 16, 14, 200, 22, "title");
+            lblAccentName = AddLabel(accent, "", 200, 16, 184, 18, "desc right");
+            accentColor = Add(accent, new Swatches(), 11, 39, 378, 72);
+            accentColor.Entries.Add(new Swatches.Entry { Value = "", Name = Str.AutoColor, Color = delegate { return Palette.DefaultAccent; } });
+            accentColor.Entries.Add(new Swatches.Entry { Value = "windows", Name = Str.WindowsAccent, Color = delegate { return Art.Accent(); } });
+            AddPresets(accentColor, Palette.HoverPresets, Str.HoverPresetNames);
+            accentColor.PickerStart = delegate { return pal.Accent; };
+            accentColor.Changed += delegate { work.Accent = accentColor.Value; SyncLook(); ApplyTheme(); Changed(); };
+
+            int ah = allColor.PreferredHeight(S(378)), ch = accentColor.PreferredHeight(S(378));
+            allColor.Height = ah; accentColor.Height = ch;
+            float y = 364;
+            Place(all, 0, y, ColW, 39 + ah / sc + 11); y += 39 + ah / sc + 11 + CardGap;
+            Place(accent, 0, y, ColW, 39 + ch / sc + 11); y += 39 + ch / sc + 11;
+            lookH = y;
+            SyncLook();
+        }
+
+        // Shows the Look settings as they are in work (after a change, a reset or an import).
+        void SyncLook()
+        {
+            bool was = loading;
+            loading = true;
+            for (int i = 0; i < 3; i++) themeTiles[i].Selected = work.ThemeMode == ThemeIds[i];
+            for (int i = 0; i < 4; i++) hoverTiles[i].Selected = work.HoverStyle == HoverIds[i];
+            sizeSeg.SelectedIndex = Math.Max(0, Array.IndexOf(SizeIds, work.RingSize));
+            allColor.Value = work.ButtonColor;
+            accentColor.Value = work.Accent;
+            lblAllColorName.Text = allColor.NameOf(work.ButtonColor);
+            lblAccentName.Text = accentColor.NameOf(work.Accent);
+            loading = was;
+        }
+
+        void ResetLook()
+        {
+            work.ThemeMode = "system"; work.HoverStyle = "fill"; work.Accent = ""; work.ButtonColor = ""; work.RingSize = "medium";
+            work.Center.ColorHex = "";
+            foreach (RingItem it in work.Items) it.ColorHex = "";
+            SyncLook();
+            ApplyTheme();
+            LoadEditor();
+            Changed();
+        }
+
+        // A tiny window: the rail, the ring and two lines, in the theme's colors ("system" is half and half).
+        static Action<Graphics, RectangleF, Color> ThemePicture(string id)
+        {
+            return delegate(Graphics g, RectangleF r, Color ink)
+            {
+                float s = ThemedControl.S;
+                Color light = Color.FromArgb(0xF4, 0xF4, 0xF6), dark = Color.FromArgb(0x1B, 0x1B, 0x1E);
+                Color a = id == "dark" ? dark : light, b = id == "light" ? light : dark;
+                RectangleF box = new RectangleF(r.X - r.Width * 0.15f, r.Y, r.Width * 1.3f, r.Height);
+                GraphicsState st = g.Save();
+                using (GraphicsPath p = ThemedControl.Round(box, 6 * s))
+                {
+                    g.SetClip(p);
+                    using (SolidBrush br = new SolidBrush(a)) g.FillRectangle(br, box);
+                    using (SolidBrush br = new SolidBrush(b)) g.FillRectangle(br, box.X + box.Width / 2, box.Y, box.Width / 2, box.Height);
+                    using (SolidBrush br = new SolidBrush(id == "dark" ? Color.FromArgb(0x14, 0x14, 0x16) : Color.FromArgb(0xE2, 0xE2, 0xE7)))
+                        g.FillRectangle(br, box.X, box.Y, box.Width * 0.16f, box.Height);
+                    g.ResetClip();
+                    using (Pen pen = new Pen(Color.FromArgb(60, 128, 128, 128))) g.DrawPath(pen, p);
+                }
+                float d = box.Height * 0.52f, cx = box.X + box.Width * 0.46f, cy = box.Y + box.Height / 2;
+                using (Pen ring = new Pen(Color.FromArgb(0xFF, 0xB3, 0x00), d * 0.2f)) g.DrawEllipse(ring, cx - d / 2, cy - d / 2, d, d);
+                Color line = id == "light" ? Color.FromArgb(0xC9, 0xC9, 0xD0) : Color.FromArgb(0x55, 0x55, 0x5E);
+                using (SolidBrush br = new SolidBrush(line))
+                {
+                    g.FillRectangle(br, box.X + box.Width * 0.68f, cy - 7 * s, box.Width * 0.22f, 4 * s);
+                    g.FillRectangle(br, box.X + box.Width * 0.68f, cy + 2 * s, box.Width * 0.16f, 4 * s);
+                }
+                g.Restore(st);
+            };
+        }
+
+        // One ring button in each hover style.
+        Action<Graphics, RectangleF, Color> HoverPicture(string id)
+        {
+            return delegate(Graphics g, RectangleF r, Color ink)
+            {
+                float cx = r.X + r.Width / 2, grow = id == "grow" ? 1.12f : 1f;
+                float ro = r.Height * 0.95f * grow, ri = r.Height * 0.38f;
+                float cy = r.Bottom + ri * 0.1f;
+                using (GraphicsPath p = Art.Sector(cx, cy + ro * 0.05f, ro, ri, -140, 100))
+                {
+                    Color btn = pal.Button;
+                    Color fill = id == "fill" || id == "grow" ? pal.Accent : id == "invert" ? (pal.Dark ? Color.FromArgb(245, 245, 247) : Color.FromArgb(32, 32, 36)) : btn;
+                    using (SolidBrush b = new SolidBrush(fill)) g.FillPath(b, p);
+                    if (id == "outline") using (Pen pen = new Pen(pal.Accent, 2 * ThemedControl.S)) g.DrawPath(pen, p);
+                    else using (Pen pen = new Pen(Color.FromArgb(50, 128, 128, 128))) g.DrawPath(pen, p);
+                }
+            };
+        }
+
+        // ---------- General page ----------
+
+        void BuildGeneralPage()
         {
             Panel p = pnlGeneral;
-            loading = true;
-            AddLabel(p, Str.OpeningSection, 0, 0, 352, 24, "heading");
-            tgMouse = Row(p, Str.OpenDoubleRight, 34, work.MouseTrigger);
-            tgMouse.CheckedChanged += delegate { if (!loading) { work.MouseTrigger = tgMouse.Checked; Changed(); } };
-            tgFullscreen = Row(p, Str.NotFullscreen, 70, work.SkipFullscreen);
-            tgFullscreen.CheckedChanged += delegate { if (!loading) { work.SkipFullscreen = tgFullscreen.Checked; Changed(); } };
+            openCard = AddCard(p);
+            AddLabel(openCard, Str.OpeningSection, 16, 14, 300, 22, "title");
+            rowMouse = Add(openCard, new SettingRow("mouse", Str.OpenDoubleRight, Str.DoubleRightDesc, true), 1, 42, ColW - 2, 56);
+            rowMouse.Checked = work.MouseTrigger;
+            rowMouse.CheckedChanged += delegate { if (!loading) { work.MouseTrigger = rowMouse.Checked; Changed(); } };
+            rowFullscreen = Add(openCard, new SettingRow("desktop", Str.FullscreenTitle, Str.FullscreenDesc, true), 1, 98, ColW - 2, 56);
+            rowFullscreen.Checked = work.SkipFullscreen;
+            rowFullscreen.CheckedChanged += delegate { if (!loading) { work.SkipFullscreen = rowFullscreen.Checked; Changed(); } };
+            rowHotkey = Add(openCard, new SettingRow("keyboard", Str.KeyboardShortcut, Str.ShortcutDesc, false), 1, 154, ColW - 2, 56);
+            rowHotkey.RightReserve = 222; // the key caps and the Change button
+            hotkeyRec = Add(rowHotkey, new KeyRecorder(true), 183, 10, 200, 36);
+            hotkeyRec.ButtonText = Str.Change;
+            hotkeyRec.Empty = Str.NotSet;
+            hotkeyRec.Combo = work.Hotkey;
+            hotkeyRec.Box.Enter += delegate { if (app != null) app.SuspendHotkey(); };
+            hotkeyRec.Box.Leave += delegate { if (app != null) app.ResumeHotkey(); };
+            hotkeyRec.Box.LostFocus += delegate { if (app != null) app.ResumeHotkey(); }; // also when recording just stops
+            hotkeyRec.Box.ComboChanged += delegate { TryHotkey(hotkeyRec.Combo); };
+            lblHotkeyError = AddLabel(openCard, "", 16, 214, 368, 20, "danger");
+            lblHotkeyError.TextChanged += delegate { LayoutGeneralPage(); };
 
-            AddLabel(p, Str.KeyboardShortcut, 0, 110, 352, 20, null);
-            hotkeyBox = new HotkeyBox(true);
-            AddField(p, hotkeyBox, 0, 132, 240);
-            hotkeyBox.Combo = work.Hotkey;
-            hotkeyBox.Enter += delegate { app.SuspendHotkey(); };
-            hotkeyBox.Leave += delegate { app.ResumeHotkey(); };
-            hotkeyBox.ComboChanged += delegate { TryHotkey(hotkeyBox.Combo); };
-            FlatButton def = Add(p, new FlatButton(Str.Default, FlatButton.Kind.Normal), 248, 132, 104, 34);
-            def.Click += delegate { TryHotkey(Config.DefaultHotkey); };
-            lblHotkeyError = AddLabel(p, "", 0, 172, 352, 28, "danger");
-            int firstBelow = p.Controls.Count; // everything from here down moves when the error shows
-            AddLabel(p, Str.Hint, 0, 174, 352, 38, "muted");
-
-            AddLabel(p, Str.VolumeSection, 0, 222, 352, 24, "heading");
-            tgVolume = Row(p, Str.ShowVolume, 254, work.VolumeBar);
-            tgVolume.CheckedChanged += delegate { if (!loading) { work.VolumeBar = tgVolume.Checked; Changed(); } };
-            // The step also applies with the blocks hidden: scrolling over the ring uses it.
-            AddLabel(p, Str.VolumeStep, 0, 295, 220, 22, null);
-            stepSeg = Add(p, new Segmented(Str.VolumeStepOptions), 232, 290, 120, 32);
-            stepSeg.SelectedIndex = work.VolumeStep == 10 ? 1 : 0;
-            stepSeg.SelectedIndexChanged += delegate { if (!loading) { work.VolumeStep = stepSeg.SelectedIndex == 1 ? 10 : 5; Changed(); } };
-
-            tgMedia = Row(p, Str.ShowMedia, 330, work.MediaBar);
-            tgMedia.CheckedChanged += delegate { if (!loading) { work.MediaBar = tgMedia.Checked; Changed(); } };
-
-            AddLabel(p, Str.OtherSection, 0, 368, 352, 24, "heading");
-            tgAutostart = Row(p, Str.StartWithWindows, 402, Autostart.IsEnabled());
-            tgAutostart.CheckedChanged += delegate
+            startCard = AddCard(p);
+            AddLabel(startCard, Str.StartupSection, 16, 14, 300, 22, "title");
+            rowAutostart = Add(startCard, new SettingRow("power", Str.StartWithWindows, Str.StartWithWindowsDesc, true), 1, 42, ColW - 2, 56);
+            rowAutostart.Checked = Autostart.IsEnabled();
+            rowAutostart.CheckedChanged += delegate
             {
                 if (loading) return;
-                Autostart.Set(tgAutostart.Checked);
+                Autostart.Set(rowAutostart.Checked);
                 bool actual = Autostart.IsEnabled();
-                if (actual == tgAutostart.Checked) return;
+                if (actual == rowAutostart.Checked) return;
                 // Windows didn't take it (Store version, turned off in Task Manager): show the real state.
-                loading = true; tgAutostart.Checked = actual; loading = false;
+                loading = true; rowAutostart.Checked = actual; loading = false;
                 if (Autostart.BlockedByUser())
                     MessageBox.Show(this, Str.StartupBlockedByUser, "QuickCut", MessageBoxButtons.OK, MessageBoxIcon.Information);
             };
-            tgNotice = Row(p, Str.LaunchNotice, 438, work.LaunchNotice);
-            tgNotice.CheckedChanged += delegate { if (!loading) { work.LaunchNotice = tgNotice.Checked; Changed(); } };
-            FlatButton restore = Add(p, new FlatButton(Str.RestoreButtons, FlatButton.Kind.Link), 0, 476, 200, 24);
-            restore.Click += delegate { RestoreDefaults(); };
-            FlatButton transfer = Add(p, new FlatButton(Str.ImportExport, FlatButton.Kind.Link), 212, 476, 140, 24);
-            transfer.AlignRight = true;
-            transfer.Click += delegate { ShowTransferMenu(transfer); };
-            FlatButton bug = Add(p, new FlatButton(Str.ReportBug, FlatButton.Kind.Link), 0, 506, 160, 24);
-            bug.Click += delegate { OpenIssue("bug.yml"); };
-            FlatButton idea = Add(p, new FlatButton(Str.SuggestFeature, FlatButton.Kind.Link), 172, 506, 180, 24);
-            idea.Click += delegate { OpenIssue("feature.yml"); };
+            rowNotice = Add(startCard, new SettingRow("bell", Str.NoticeTitle, Str.NoticeDesc, true), 1, 98, ColW - 2, 56);
+            rowNotice.Checked = work.LaunchNotice;
+            rowNotice.CheckedChanged += delegate { if (!loading) { work.LaunchNotice = rowNotice.Checked; Changed(); } };
 
-            belowError = new System.Collections.Generic.List<Control>();
-            belowErrorTop = new System.Collections.Generic.List<int>();
-            for (int i = firstBelow; i < p.Controls.Count; i++) { belowError.Add(p.Controls[i]); belowErrorTop.Add(p.Controls[i].Top); }
-            lblHotkeyError.TextChanged += delegate { LayoutHotkeyError(); };
-            LayoutHotkeyError();
-            loading = false;
+            string[] names = { Str.ExportTile, Str.ImportTile, Str.RestoreTile };
+            string[] icons = { "download", "upload", "ccw" };
+            Action[] acts = { ExportSettings, ImportSettings, RestoreDefaults };
+            toolTiles = new ChoiceTile[3];
+            for (int i = 0; i < 3; i++)
+            {
+                Action a = acts[i];
+                toolTiles[i] = Add(p, new ChoiceTile(names[i], icons[i]), i * 136, 0, 128, 76);
+                toolTiles[i].Plain = true;
+                toolTiles[i].Click += delegate { a(); };
+            }
+            lnkBug = Add(p, new IconLink("bug", Str.ReportBug), 4, 0, 150, 24);
+            lnkBug.Click += delegate { OpenIssue("bug.yml"); };
+            lnkIdea = Add(p, new IconLink("bulb", Str.SuggestFeature), 170, 0, 180, 24);
+            lnkIdea.Click += delegate { OpenIssue("feature.yml"); };
+            LayoutGeneralPage();
         }
 
-        ToggleSwitch Row(Panel p, string text, float y, bool on)
+        void LayoutGeneralPage()
         {
-            AddLabel(p, text, 0, y + 3, 290, 22, null);
-            ToggleSwitch t = Add(p, new ToggleSwitch(), 300, y, 52, 28);
-            t.Checked = on;
-            return t;
-        }
-
-        void ShowTab()
-        {
-            pnlButtons.Visible = tabs.SelectedIndex == 0;
-            pnlAppearance.Visible = tabs.SelectedIndex == 1;
-            pnlGeneral.Visible = tabs.SelectedIndex == 2;
-            // The hover hint sits under the ring it talks about, so it always fits, even with both color grids open.
-            lblPreviewHint.Text = tabs.SelectedIndex == 1 ? Str.HoverHint : Str.PreviewHint;
+            bool err = lblHotkeyError.Text.Length > 0;
+            lblHotkeyError.Visible = err;
+            float openH = err ? 242 : 216, y = 0;
+            Place(openCard, 0, y, ColW, openH); y += openH + CardGap;
+            Place(startCard, 0, y, ColW, 160); y += 160 + CardGap;
+            for (int i = 0; i < 3; i++) Place(toolTiles[i], i * 136, y, 128, 76);
+            y += 76 + 20;
+            Place(lnkBug, 4, y, 150, 24);
+            Place(lnkIdea, 170, y, 180, 24);
+            generalH = y + 24;
+            toolTiles[2].Ink = pal.Danger;
         }
 
         // ---------- theme ----------
@@ -407,6 +647,7 @@ namespace QuickCut
             pal = Palette.Get(work);
             BackColor = pal.Window;
             if (IsHandleCreated) Theme.TitleBar(Handle, pal.Dark);
+            if (toolTiles != null) toolTiles[2].Ink = pal.Danger;
             Walk(this);
             Invalidate(true);
         }
@@ -419,9 +660,9 @@ namespace QuickCut
                 if (t != null) t.SetPalette(pal);
                 else if (c is Label)
                 {
-                    string tag = c.Tag as string;
+                    string tag = (c.Tag as string) ?? "";
                     c.BackColor = parent.BackColor;
-                    c.ForeColor = tag == "muted" ? pal.Muted : tag == "danger" ? pal.Danger : pal.Text;
+                    c.ForeColor = tag.StartsWith("muted") || tag.StartsWith("desc") || tag == "pagesub" ? pal.Muted : tag == "danger" ? pal.Danger : pal.Text;
                 }
                 else if (c is Panel) c.BackColor = parent.BackColor;
                 Walk(c);
@@ -433,6 +674,7 @@ namespace QuickCut
             base.OnHandleCreated(e);
             Theme.TitleBar(Handle, pal.Dark);
             urlField.SetCue(Str.WebCue);
+            labelField.SetCue(Str.LabelCue);
         }
 
         // ---------- editing ----------
@@ -458,6 +700,25 @@ namespace QuickCut
             catch { return ""; }
         }
 
+        // "Microsoft Store app", "Program", "Shortcut", "Folder" or "File", under the app's name.
+        static string KindOf(string path)
+        {
+            try
+            {
+                if (path.Length == 0) return "";
+                if (AppCatalog.IsAppsFolder(path)) return path.IndexOf('!') > 0 ? Str.AppKindStore : Str.AppKindProgram;
+                string p = Actions.ExpandPath(path);
+                if (Directory.Exists(p)) return Str.AppKindFolder;
+                string ext = Path.GetExtension(p).ToLowerInvariant();
+                if (ext == ".lnk" || ext == ".url") return Str.AppKindShortcut;
+                if (ext == ".exe" || ext == ".bat" || ext == ".cmd") return Str.AppKindProgram;
+                return Str.AppKindFile;
+            }
+            catch { return ""; }
+        }
+
+        int lastSelected = int.MinValue;
+
         void LoadEditor()
         {
             loading = true;
@@ -465,31 +726,32 @@ namespace QuickCut
             int s = preview.Selected;
             bool center = s < 0;
             int n = work.Items.Count;
+            if (s != lastSelected) { showArgs = false; lastSelected = s; }
 
-            lblTitle.Text = center ? Str.CenterButton : string.Format(Str.ButtonN, s + 1);
+            lblCaption.Text = center ? Str.CenterButton : string.Format(Str.ButtonOf, s + 1, n);
+            if (labelField.Box.Text != it.Label) labelField.Box.Text = it.Label;
             btnRemove.Visible = !center;
             for (int i = 0; i < typeTiles.Length; i++) typeTiles[i].Selected = (int)it.Type == i;
-            subApp.Visible = it.Type == ActionType.Program;
-            subWeb.Visible = it.Type == ActionType.Url;
-            subMedia.Visible = it.Type == ActionType.Media;
-            subKeys.Visible = it.Type == ActionType.Keys;
 
             bool prog = it.Type == ActionType.Program;
             appDisplay.Path = prog ? it.Target : "";
             string appName = NameOf(it.Target);
             appDisplay.Title = !prog || it.Target.Length == 0 ? Str.ChooseApp : appName.Length > 0 ? appName : it.Label;
+            appDisplay.Kind = prog ? KindOf(it.Target) : "";
             appDisplay.Invalidate();
             argsField.Box.Text = it.Args;
             urlField.Box.Text = it.Type == ActionType.Url ? it.Target : "";
-            for (int i = 0; i < mediaTiles.Length; i++)
-                mediaTiles[i].Selected = it.Type == ActionType.Media && Actions.MediaIds[i] == it.Target;
-            keysBox.Combo = it.Type == ActionType.Keys ? it.Target : "";
-            labelField.Box.Text = it.Label;
+            mediaChips.SelectedIndex = it.Type == ActionType.Media ? Array.IndexOf(Actions.MediaIds, it.Target) : -1;
+            keysRec.Combo = it.Type == ActionType.Keys ? it.Target : "";
+            iconPicker.Website = it.Type == ActionType.Url;
+            iconPicker.Value = it.Icon;
             itemColor.Value = it.ColorHex;
+            lblItemColorName.Text = itemColor.NameOf(it.ColorHex);
 
-            btnLeft.Enabled = btnRight.Enabled = !center && n > 1;
-            btnAdd.Enabled = n < Config.MaxItems;
-            btnLeft.Invalidate(); btnRight.Invalidate(); btnAdd.Invalidate();
+            toolbar.Items[0].Enabled = toolbar.Items[2].Enabled = !center && n > 1;
+            toolbar.Items[1].Enabled = n < Config.MaxItems;
+            toolbar.Invalidate();
+            LayoutButtonsPage();
             preview.Invalidate();
             loading = false;
         }
@@ -502,6 +764,7 @@ namespace QuickCut
             it.Type = t;
             it.Target = t == ActionType.Media ? Actions.MediaIds[0] : "";
             it.Args = "";
+            it.Icon = ""; // each kind of button starts with its own automatic icon
             if (auto) it.Label = t == ActionType.Media ? Actions.MediaShortName(it.Target) : "";
             LoadEditor();
             Changed();
@@ -544,13 +807,12 @@ namespace QuickCut
             }
         }
 
-
         void AddItem()
         {
             if (work.Items.Count >= Config.MaxItems) return;
             work.Items.Add(new RingItem(ActionType.Program, "", ""));
             preview.Selected = work.Items.Count - 1;
-            tabs.SelectedIndex = 0;
+            ShowPage(0);
             LoadEditor();
             Changed();
         }
@@ -606,14 +868,13 @@ namespace QuickCut
                 lblHotkeyError.Text = string.Format(Str.HotkeyUnavailable, combo);
             }
             else RefreshHotkeyWarning();
-            hotkeyBox.Combo = work.Hotkey;
+            hotkeyRec.Combo = work.Hotkey;
+            preview.Hint = page == 3 ? string.Format(Str.StageHintGeneral, work.Hotkey) : preview.Hint;
+            preview.Invalidate();
             if (saved) SetStatus(Str.AllSaved, "muted");
             else SetStatus(saveErr ?? Str.NotSaved, "danger");
         }
 
-        // The error line only takes room while there is something to say; the rest slides down under it.
-        System.Collections.Generic.List<Control> belowError;
-        System.Collections.Generic.List<int> belowErrorTop;
         // Opens a new GitHub issue with the versions filled in (issue forms take field ids as query parameters).
         void OpenIssue(string template)
         {
@@ -651,14 +912,6 @@ namespace QuickCut
             catch { return Environment.OSVersion.VersionString; }
         }
 
-        void LayoutHotkeyError()
-        {
-            bool show = lblHotkeyError.Text.Length > 0;
-            lblHotkeyError.Visible = show;
-            int shift = show ? S(30) : 0;
-            for (int i = 0; i < belowError.Count; i++) belowError[i].Top = belowErrorTop[i] + shift;
-        }
-
         void RefreshHotkeyWarning()
         {
             if (app == null) return;
@@ -671,6 +924,7 @@ namespace QuickCut
         void Changed()
         {
             if (loading) return;
+            LayoutWindow();
             preview.Invalidate();
             SetStatus(Str.Saving, "muted");
             commitTimer.Stop();
@@ -688,9 +942,9 @@ namespace QuickCut
 
         void SetStatus(string text, string tag)
         {
-            lblStatus.Text = text;
-            lblStatus.Tag = tag;
-            lblStatus.ForeColor = tag == "danger" ? pal.Danger : pal.Muted;
+            // The pill shows the check mark itself.
+            string t = text.StartsWith("✓") ? text.Substring(1).Trim() : text;
+            status.Set(t, tag == "danger", text == Str.Saving);
         }
 
         // The shortcut box turns the global hotkey off while it records (Enter/Leave above), but
@@ -700,7 +954,7 @@ namespace QuickCut
         protected override void OnActivated(EventArgs e)
         {
             base.OnActivated(e);
-            if (app != null && ActiveControl == hotkeyBox) app.SuspendHotkey();
+            if (app != null && ActiveControl == hotkeyRec.Box) app.SuspendHotkey();
         }
 
         protected override void OnDeactivate(EventArgs e)
@@ -719,6 +973,7 @@ namespace QuickCut
         {
             SystemEvents.UserPreferenceChanged -= prefChanged;
             commitTimer.Dispose();
+            liveTimer.Dispose();
             base.OnFormClosed(e);
         }
 
@@ -750,7 +1005,7 @@ namespace QuickCut
             {
                 f.StartPosition = FormStartPosition.Manual;
                 f.Location = new Point(-20000, -20000);
-                f.tabs.SelectedIndex = tab;
+                f.ShowPage(tab);
                 f.Show();
                 Application.DoEvents();
                 Bitmap b = new Bitmap(f.Width, f.Height);

@@ -27,6 +27,8 @@ namespace QuickCutTests
             Tests.FileTests();
             SettingsTests.FitScaleTests();
             TransferTests.Run();
+            MixerTests.Run();
+            IconTests.Run();
             Tests.KnownBugs();
 
             Group("Safety");

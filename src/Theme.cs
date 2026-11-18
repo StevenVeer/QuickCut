@@ -11,6 +11,9 @@ namespace QuickCut
     {
         public bool Dark;
         public Color Window, Card, Field, Text, Muted, Border, Hover, Ring, Button, Accent, AccentText, Danger;
+        // Settings window: the side rail, the preview stage and its dots, level bar tracks, the soft accent
+        // behind selected items, and the green of "saved".
+        public Color Rail, Stage, Dot, Track, AccentSoft, Success;
 
         public static Palette Get(Config cfg)
         {
@@ -19,6 +22,7 @@ namespace QuickCut
             p.Accent = AccentFor(cfg.Accent);
             // Links in the accent color: light colors like orange are too faint on white, so darken them.
             p.AccentText = !dark && Theme.Lum(p.Accent) > 0.45f ? Theme.Mix(p.Accent, Color.Black, 0.35f) : p.Accent;
+            p.AccentSoft = Theme.Mix(p.Card, p.Accent, dark ? 0.16f : 0.18f);
             return p;
         }
 
@@ -45,20 +49,24 @@ namespace QuickCut
         {
             Palette p = new Palette();
             p.Dark = true;
-            p.Window = Rgb(0x20, 0x20, 0x22); p.Card = Rgb(0x2B, 0x2B, 0x2E); p.Field = Rgb(0x1F, 0x1F, 0x22);
-            p.Text = Rgb(0xF1, 0xF1, 0xF3); p.Muted = Rgb(0xA6, 0xA6, 0xAE); p.Border = Rgb(0x48, 0x48, 0x4E);
-            p.Hover = Rgb(0x37, 0x37, 0x3C); p.Ring = Rgb(0x1E, 0x1F, 0x26); p.Button = Rgb(0x2E, 0x2F, 0x37);
+            p.Window = Rgb(0x1B, 0x1B, 0x1E); p.Card = Rgb(0x24, 0x24, 0x28); p.Field = Rgb(0x1C, 0x1C, 0x1F);
+            p.Text = Rgb(0xF2, 0xF2, 0xF4); p.Muted = Rgb(0xA6, 0xA6, 0xB0); p.Border = Rgb(0x34, 0x34, 0x3A);
+            p.Hover = Rgb(0x2E, 0x2E, 0x33); p.Ring = Rgb(0x1E, 0x1F, 0x26); p.Button = Rgb(0x2E, 0x2F, 0x37);
             p.Danger = Rgb(0xF0, 0x95, 0x95);
+            p.Rail = Rgb(0x16, 0x16, 0x18); p.Stage = Rgb(0x12, 0x12, 0x14); p.Dot = Rgb(0x26, 0x26, 0x2B);
+            p.Track = Rgb(0x3A, 0x3A, 0x41); p.Success = Rgb(0x3D, 0xBE, 0x7A);
             return p;
         }
 
         static Palette LightBase()
         {
             Palette p = new Palette();
-            p.Window = Rgb(0xF3, 0xF3, 0xF3); p.Card = Rgb(0xFF, 0xFF, 0xFF); p.Field = Rgb(0xFF, 0xFF, 0xFF);
-            p.Text = Rgb(0x1F, 0x1F, 0x22); p.Muted = Rgb(0x5F, 0x5F, 0x66); p.Border = Rgb(0xD4, 0xD4, 0xD9);
-            p.Hover = Rgb(0xEE, 0xEE, 0xF1); p.Ring = Rgb(0xE2, 0xE2, 0xE8); p.Button = Rgb(0xFF, 0xFF, 0xFF);
-            p.Danger = Rgb(0xC4, 0x2B, 0x1C);
+            p.Window = Rgb(0xF6, 0xF6, 0xF8); p.Card = Rgb(0xFF, 0xFF, 0xFF); p.Field = Rgb(0xF4, 0xF4, 0xF6);
+            p.Text = Rgb(0x1C, 0x1C, 0x20); p.Muted = Rgb(0x5C, 0x5C, 0x66); p.Border = Rgb(0xE1, 0xE1, 0xE7);
+            p.Hover = Rgb(0xED, 0xED, 0xF1); p.Ring = Rgb(0xE2, 0xE2, 0xE8); p.Button = Rgb(0xFF, 0xFF, 0xFF);
+            p.Danger = Rgb(0xB4, 0x23, 0x18);
+            p.Rail = Rgb(0xED, 0xED, 0xF1); p.Stage = Rgb(0xE5, 0xE6, 0xEB); p.Dot = Rgb(0xCF, 0xD1, 0xD8);
+            p.Track = Rgb(0xE1, 0xE1, 0xE6); p.Success = Rgb(0x1E, 0x8E, 0x55);
             return p;
         }
 

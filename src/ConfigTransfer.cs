@@ -10,6 +10,7 @@ namespace QuickCut
     // belong to this PC and are never exported; import leaves them as they are.
     //
     // The file is the config.ini format with only these keys: theme, hover, accent, buttoncolor, size,
+    // center, item and icon (a button's own icon; an image icon only shows where its image is stored).
     // center and item. Import reads only those, so even a renamed config.ini imports cleanly.
     static class ConfigTransfer
     {
@@ -19,7 +20,7 @@ namespace QuickCut
 
         static readonly string[] Themes = { "system", "light", "dark" };
         static readonly string[] Hovers = { "fill", "invert", "outline", "grow" };
-        static readonly string[] Sizes = { "small", "medium", "large" };
+        static readonly string[] Sizes = { "small", "medium" };
 
         public class ImportResult
         {
@@ -40,8 +41,8 @@ namespace QuickCut
             sb.AppendLine("accent=" + cfg.Accent);
             sb.AppendLine("buttoncolor=" + cfg.ButtonColor);
             sb.AppendLine("size=" + cfg.RingSize);
-            sb.AppendLine("center=" + PortableItem(cfg.Center).Serialize());
-            foreach (RingItem it in cfg.Items) sb.AppendLine("item=" + PortableItem(it).Serialize());
+            Config.AppendItem(sb, "center=", PortableItem(cfg.Center));
+            foreach (RingItem it in cfg.Items) Config.AppendItem(sb, "item=", PortableItem(it));
             Config.WriteAtomic(path, sb.ToString());
         }
 

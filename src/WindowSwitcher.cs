@@ -40,7 +40,7 @@ namespace QuickCut
         }
 
         // The .exe a target starts: the file itself, or the target of a shortcut.
-        static string ExeFor(string target)
+        internal static string ExeFor(string target)
         {
             try
             {

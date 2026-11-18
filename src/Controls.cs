@@ -24,6 +24,10 @@ namespace QuickCut
 
         protected Color Back { get { return Parent != null ? Parent.BackColor : Pal.Card; } }
 
+        // The color around this control (its parent's), for controls that set their own BackColor for
+        // their children.
+        protected virtual Color BackForParent { get { return Back; } }
+
         protected override void OnMouseEnter(EventArgs e) { Hot = true; Invalidate(); base.OnMouseEnter(e); }
         protected override void OnMouseLeave(EventArgs e) { Hot = false; Invalidate(); base.OnMouseLeave(e); }
 
@@ -72,7 +76,7 @@ namespace QuickCut
             Graphics g = e.Graphics;
             g.Clear(Parent != null ? Parent.BackColor : Pal.Window);
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (GraphicsPath p = Round(Inner, 10 * S))
+            using (GraphicsPath p = Round(Inner, 12 * S))
             {
                 using (SolidBrush b = new SolidBrush(Pal.Card)) g.FillPath(b, p);
                 using (Pen pen = new Pen(Pal.Border)) g.DrawPath(pen, p);
@@ -82,27 +86,45 @@ namespace QuickCut
 
     class FlatButton : ThemedControl
     {
-        public enum Kind { Normal, Link, Danger }
+        // Normal: a box. Link: text only. Danger: red text only. DangerBox: a box with red text.
+        // Accent: filled with the accent color (the main action).
+        public enum Kind { Normal, Link, Danger, DangerBox, Accent }
         public Kind Style;
         public bool AlignRight; // links only
+        public string IconName; // optional line icon before the text
 
         public FlatButton(string text, Kind style) { Text = text; Style = style; Cursor = Cursors.Hand; TabStop = true; }
+
+        bool Boxed { get { return Style == Kind.Normal || Style == Kind.DangerBox || Style == Kind.Accent; } }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = Prepare(e);
-            Color fg = !Enabled ? Pal.Muted : Style == Kind.Link ? Pal.AccentText : Style == Kind.Danger ? Pal.Danger : Pal.Text;
-            TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
-                (Style == Kind.Normal ? TextFormatFlags.HorizontalCenter : AlignRight ? TextFormatFlags.Right : TextFormatFlags.Left);
-            if (Style == Kind.Normal)
-                using (GraphicsPath p = Round(Inner, 6 * S))
+            Color fg = !Enabled ? Pal.Muted : Style == Kind.Link ? Pal.AccentText : Style == Kind.Danger || Style == Kind.DangerBox ? Pal.Danger
+                : Style == Kind.Accent ? Theme.TextOn(Pal.Accent) : Pal.Text;
+            TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix |
+                (Boxed ? TextFormatFlags.HorizontalCenter : AlignRight ? TextFormatFlags.Right : TextFormatFlags.Left);
+            if (Boxed)
+                using (GraphicsPath p = Round(Inner, 9 * S))
                 {
-                    using (SolidBrush b = new SolidBrush(Hot && Enabled ? Pal.Hover : Back)) g.FillPath(b, p);
-                    using (Pen pen = new Pen(Focused ? Pal.Accent : Pal.Border)) g.DrawPath(pen, p);
+                    Color fill = Style == Kind.Accent ? (Hot ? Theme.Mix(Pal.Accent, Color.White, 0.12f) : Pal.Accent)
+                        : Hot && Enabled ? Pal.Hover : Pal.Field;
+                    using (SolidBrush b = new SolidBrush(fill)) g.FillPath(b, p);
+                    using (Pen pen = new Pen(Focused ? Pal.Text : Style == Kind.Accent ? Pal.Accent : Pal.Border)) g.DrawPath(pen, p);
                 }
-            using (Font f = Hot && Style != Kind.Normal ? new Font(Font, FontStyle.Underline) : (Font)Font.Clone())
+            Font baseFont = Style == Kind.Accent ? Ui.Font(13, true) : Font;
+            using (Font f = Hot && !Boxed ? new Font(baseFont, FontStyle.Underline) : (Font)baseFont.Clone())
             {
-                if (Style == Kind.Normal) DrawCentered(g, Text, f, ClientRectangle, fg);
+                if (IconName != null)
+                {
+                    // Icon and text centered together (boxed), or from the left (links).
+                    int tw = TextRenderer.MeasureText(g, Text, f, new Size(1000, 100), TextFormatFlags.NoPadding).Width;
+                    float iw = 15 * S, gap = 6 * S;
+                    float x = Boxed ? (Width - (iw + gap + tw)) / 2f : AlignRight ? Width - (iw + gap + tw) : 0;
+                    Icons.Get(IconName).Draw(g, new RectangleF(x, (Height - iw) / 2, iw, iw), fg, Style == Kind.Accent ? 2.4f : 2f, false);
+                    TextRenderer.DrawText(g, Text, f, new Rectangle((int)(x + iw + gap), 0, tw + 4, Height), fg, Ui.Left);
+                }
+                else if (Boxed) DrawCentered(g, Text, f, ClientRectangle, fg);
                 else TextRenderer.DrawText(g, Text, f, ClientRectangle, fg, flags);
             }
         }
@@ -114,38 +136,6 @@ namespace QuickCut
         }
         protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
         protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
-    }
-
-    // Big choice tile with a glyph above the text.
-    class Tile : ThemedControl
-    {
-        public Action<Graphics, RectangleF, Color> Glyph;
-        bool selected;
-        public bool Selected { get { return selected; } set { selected = value; Invalidate(); } }
-
-        public Tile(string text, Action<Graphics, RectangleF, Color> glyph) { Text = text; Glyph = glyph; Cursor = Cursors.Hand; }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            Graphics g = Prepare(e);
-            RectangleF r = new RectangleF(1, 1, Width - 3, Height - 3);
-            using (GraphicsPath p = Round(r, 8 * S))
-            {
-                Color fill = selected ? Theme.Mix(Pal.Card, Pal.Accent, Pal.Dark ? 0.22f : 0.12f) : Hot ? Pal.Hover : Pal.Card;
-                using (SolidBrush b = new SolidBrush(fill)) g.FillPath(b, p);
-                using (Pen pen = new Pen(selected ? Pal.Accent : Pal.Border, selected ? 2 * S : 1)) g.DrawPath(pen, p);
-            }
-            // Icon and text are centered together as one block.
-            Color fg = Pal.Text;
-            float gs = Math.Min(22 * S, Height * 0.36f);
-            bool hasText = !string.IsNullOrEmpty(Text);
-            const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
-            int th = hasText ? TextRenderer.MeasureText(g, Text, Font, new Size(int.MaxValue, int.MaxValue), flags).Height : 0;
-            float gap = hasText ? 5 * S : 0;
-            float top = (Height - (gs + gap + th)) / 2f;
-            if (Glyph != null) Glyph(g, new RectangleF((Width - gs) / 2f, top, gs, gs), fg);
-            if (hasText) DrawCentered(g, Text, Font, new Rectangle(3, (int)Math.Round(top + gs + gap), Width - 6, th), fg);
-        }
     }
 
     class ToggleSwitch : ThemedControl
@@ -166,17 +156,8 @@ namespace QuickCut
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = Prepare(e);
-            float h = 20 * S, w = 40 * S;
-            RectangleF r = new RectangleF(Width - w - 1, (Height - h) / 2, w, h);
-            using (GraphicsPath p = Round(r, h / 2))
-            {
-                using (SolidBrush b = new SolidBrush(on ? Pal.Accent : Pal.Field)) g.FillPath(b, p);
-                if (!on) using (Pen pen = new Pen(Pal.Muted)) g.DrawPath(pen, p);
-            }
-            float k = h - 8 * S;
-            float kx = on ? r.Right - k - 4 * S : r.X + 4 * S;
-            using (SolidBrush b = new SolidBrush(on ? Theme.TextOn(Pal.Accent) : Pal.Muted))
-                g.FillEllipse(b, kx, r.Y + 4 * S, k, k);
+            float h = 24 * S, w = 42 * S;
+            Ui.DrawToggle(g, new RectangleF(Width - w - 1, (Height - h) / 2, w, h), on, Pal);
         }
     }
 
@@ -203,204 +184,23 @@ namespace QuickCut
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = Prepare(e);
-            using (GraphicsPath p = Round(Inner, 6 * S))
+            using (GraphicsPath p = Round(Inner, 9 * S))
             {
                 using (SolidBrush b = new SolidBrush(Pal.Field)) g.FillPath(b, p);
                 using (Pen pen = new Pen(Pal.Border)) g.DrawPath(pen, p);
             }
-            float w = (Width - 1f) / Options.Length;
+            float w = (Width - 1f - 6 * S) / Options.Length;
             for (int i = 0; i < Options.Length; i++)
             {
-                RectangleF r = new RectangleF(i * w + 3 * S, 3 * S, w - 6 * S, Height - 7 * S);
+                RectangleF r = new RectangleF(3 * S + i * w, 3 * S, w, Height - 7 * S);
                 Color fg = Pal.Text;
                 if (i == index || i == hotIndex)
-                    using (GraphicsPath p = Round(r, 4 * S))
+                    using (GraphicsPath p = Round(r, 7 * S))
                     using (SolidBrush b = new SolidBrush(i == index ? Pal.Accent : Pal.Hover))
                         g.FillPath(b, p);
                 if (i == index) fg = Theme.TextOn(Pal.Accent);
-                TextRenderer.DrawText(g, Options[i], Font, Rectangle.Round(r), fg,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                TextRenderer.DrawText(g, Options[i], i == index ? Ui.Font(13, true) : Ui.Font(13, false), Rectangle.Round(r), fg, Ui.Center);
             }
-        }
-    }
-
-    // A color setting, in the style of the accent color page in Windows Settings: a switch between Automatic,
-    // the Windows accent color (optional) and Choose. Choose shows a grid of preset colors; its last cell opens
-    // the color picker. Value: "" = automatic, "windows" = Windows accent color, otherwise #RRGGBB.
-    class ColorChooser : ThemedControl
-    {
-        const int Cols = 8;
-        public const int ClosedHeight = 56, OpenHeight = 136; // logical pixels
-        readonly string title;
-        readonly string[] presets, names;
-        readonly bool windowsMode;
-        readonly Segmented modes;
-        readonly ToolTip tip = new ToolTip();
-        public Func<Color> AutoColor;  // what Automatic looks like right now (the picker starts there)
-        public event EventHandler Changed;       // the user picked something
-        public event EventHandler HeightChanged; // the grid opened or closed
-        string value = "";
-        string lastChosen;
-        int hot = -1;
-        bool syncing;
-
-        public ColorChooser(string title, string[] modeNames, bool windowsMode, string[] presets, string[] names)
-        {
-            this.title = title;
-            this.windowsMode = windowsMode;
-            this.presets = presets;
-            this.names = names;
-            lastChosen = presets[0];
-            modes = new Segmented(modeNames);
-            Controls.Add(modes);
-            modes.SelectedIndexChanged += delegate
-            {
-                if (syncing) return;
-                int i = modes.SelectedIndex;
-                Pick(i == 0 ? "" : windowsMode && i == 1 ? "windows" : lastChosen);
-            };
-        }
-
-        float D { get { return 30 * S; } }
-        float StepX { get { return (Width - 2 * Pad - D) / (Cols - 1); } } // the grid spans the full width
-        float StepY { get { return 38 * S; } }
-        float Pad { get { return 4 * S; } }       // room for the selection ring
-        float GridTop { get { return 60 * S; } }  // below the title row and the switch
-
-        bool Choosing { get { return value.StartsWith("#"); } }
-        bool IsCustom { get { return Choosing && Array.IndexOf(presets, value) < 0; } }
-
-        public string Value
-        {
-            get { return value; }
-            set
-            {
-                string v = value ?? "";
-                if (v == "windows" && !windowsMode) v = "";
-                if (v.Length > 0 && v != "windows") { Color? c = Theme.ParseHex(v); v = c.HasValue ? Theme.ToHex(c.Value) : ""; }
-                this.value = v;
-                if (Choosing) lastChosen = v;
-                syncing = true;
-                modes.SelectedIndex = v == "" ? 0 : v == "windows" ? 1 : modes.Options.Length - 1;
-                syncing = false;
-                UpdateHeight();
-                Invalidate();
-            }
-        }
-
-        void Pick(string v)
-        {
-            Value = v;
-            if (Changed != null) Changed(this, EventArgs.Empty);
-        }
-
-        void UpdateHeight()
-        {
-            int h = (int)Math.Round((Choosing ? OpenHeight : ClosedHeight) * S);
-            if (h == Height) return;
-            Height = h;
-            if (HeightChanged != null) HeightChanged(this, EventArgs.Empty);
-        }
-
-        protected override void OnLayout(LayoutEventArgs e)
-        {
-            base.OnLayout(e);
-            modes.SetBounds(0, (int)Math.Round(20 * S), Width, (int)Math.Round(36 * S));
-        }
-
-        RectangleF Cell(int i)
-        {
-            return new RectangleF(Pad + (i % Cols) * StepX, GridTop + Pad + (i / Cols) * StepY, D, D);
-        }
-
-        int CellAt(Point p)
-        {
-            if (!Choosing) return -1;
-            for (int i = 0; i <= presets.Length; i++)
-                if (RectangleF.Inflate(Cell(i), 4 * S, 4 * S).Contains(p)) return i;
-            return -1;
-        }
-
-        protected override void OnMouseMove(MouseEventArgs e)
-        {
-            base.OnMouseMove(e);
-            int i = CellAt(e.Location);
-            Cursor = i >= 0 ? Cursors.Hand : Cursors.Default;
-            if (i == hot) return;
-            hot = i;
-            tip.SetToolTip(this, i < 0 ? null : i < presets.Length ? names[i] : Str.MoreColors);
-            Invalidate();
-        }
-
-        protected override void OnMouseLeave(EventArgs e) { hot = -1; base.OnMouseLeave(e); }
-
-        protected override void OnMouseClick(MouseEventArgs e)
-        {
-            base.OnMouseClick(e);
-            int i = CellAt(e.Location);
-            if (i < 0) return;
-            if (i < presets.Length) { Pick(presets[i]); return; }
-            Color? cur = Theme.ParseHex(value);
-            using (ColorPickerForm d = new ColorPickerForm(Pal, cur.HasValue ? cur.Value : AutoColor()))
-                if (d.ShowDialog(FindForm()) == DialogResult.OK) Pick(Theme.ToHex(d.Result));
-        }
-
-        // Name of the chosen color for the title row; empty unless a color is chosen.
-        string ChosenName()
-        {
-            if (!Choosing) return "";
-            int i = Array.IndexOf(presets, value);
-            return i >= 0 ? names[i] : string.Format(Str.CustomColor, value);
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            Graphics g = Prepare(e);
-            Rectangle row = new Rectangle(0, 0, Width, (int)Math.Round(20 * S));
-            const TextFormatFlags flags = TextFormatFlags.Top | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, title, Font, row, Pal.Muted, flags | TextFormatFlags.Left);
-            TextRenderer.DrawText(g, ChosenName(), Font, row, Pal.Text, flags | TextFormatFlags.Right);
-            if (!Choosing) return;
-
-            for (int i = 0; i < presets.Length; i++)
-                Square(g, Cell(i), Theme.ParseHex(presets[i]).Value, presets[i] == value, i == hot);
-
-            // Last cell: the custom color when one is chosen, otherwise a dashed "+".
-            RectangleF r = Cell(presets.Length);
-            if (IsCustom) Square(g, r, Theme.ParseHex(value).Value, true, hot == presets.Length);
-            else
-            {
-                using (GraphicsPath p = Round(r, 6 * S))
-                {
-                    if (hot == presets.Length) using (SolidBrush b = new SolidBrush(Pal.Hover)) g.FillPath(b, p);
-                    using (Pen pen = new Pen(Pal.Muted, S) { DashStyle = DashStyle.Dash }) g.DrawPath(pen, p);
-                }
-                using (Pen pen = new Pen(Pal.Muted, 1.5f * S))
-                {
-                    float cx = r.X + D / 2, cy = r.Y + D / 2, a = D * 0.2f;
-                    g.DrawLine(pen, cx - a, cy, cx + a, cy);
-                    g.DrawLine(pen, cx, cy - a, cx, cy + a);
-                }
-            }
-        }
-
-        void Square(Graphics g, RectangleF r, Color c, bool sel, bool hover)
-        {
-            using (GraphicsPath p = Round(r, 6 * S))
-            {
-                using (SolidBrush b = new SolidBrush(c)) g.FillPath(b, p);
-                using (Pen pen = new Pen(hover ? Pal.Muted : Pal.Border)) g.DrawPath(pen, p);
-            }
-            if (sel)
-                using (GraphicsPath p = Round(RectangleF.Inflate(r, 3 * S, 3 * S), 8 * S))
-                using (Pen pen = new Pen(Pal.Text, 2 * S))
-                    g.DrawPath(pen, p);
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing) tip.Dispose();
-            base.Dispose(disposing);
         }
     }
 
@@ -438,7 +238,7 @@ namespace QuickCut
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = Prepare(e);
-            using (GraphicsPath p = Round(Inner, 6 * S))
+            using (GraphicsPath p = Round(Inner, 9 * S))
             {
                 using (SolidBrush b = new SolidBrush(Pal.Field)) g.FillPath(b, p);
                 using (Pen pen = new Pen(Box.Focused ? Pal.Accent : Pal.Border, Box.Focused ? 1.5f * S : 1)) g.DrawPath(pen, p);
@@ -449,29 +249,37 @@ namespace QuickCut
         public void SetCue(string text) { Native.SendMessage(Box.Handle, 0x1501, (IntPtr)1, text); }
     }
 
-    // Shows the chosen app with its icon; click to pick another.
+    // The chosen app: its icon, its name and what kind of thing it is. Click to pick another.
     class AppDisplay : ThemedControl
     {
-        public string Path = "", Title = "";
+        public string Path = "", Title = "", Kind = "";
         public AppDisplay() { Cursor = Cursors.Hand; }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = Prepare(e);
-            using (GraphicsPath p = Round(Inner, 6 * S))
-            {
-                using (SolidBrush b = new SolidBrush(Hot ? Pal.Hover : Pal.Field)) g.FillPath(b, p);
-                using (Pen pen = new Pen(Pal.Border)) g.DrawPath(pen, p);
-            }
-            float isz = 22 * S;
-            Bitmap icon = Path.Length > 0 ? Art.PathIcon(Path, false) : null;
-            RectangleF ir = new RectangleF(9 * S, (Height - isz) / 2, isz, isz);
+            float isz = 36 * S;
+            Bitmap icon = Path.Length > 0 ? Art.PathIcon(Path, true) : null;
+            RectangleF ir = new RectangleF(0, (Height - isz) / 2, isz, isz);
             if (icon != null) { g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.DrawImage(icon, ir); }
-            else Art.DrawApps(g, ir, Pal.Muted);
-            Rectangle tr = new Rectangle((int)(ir.Right + 8 * S), 0, (int)(Width - ir.Right - 14 * S), Height);
-            TextRenderer.DrawText(g, Title, Font, tr, Path.Length > 0 ? Pal.Text : Pal.Muted,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+            else
+            {
+                using (GraphicsPath p = Round(ir, 9 * S)) using (SolidBrush b = new SolidBrush(Pal.Field)) g.FillPath(b, p);
+                Icons.Draw(g, "apps", RectangleF.Inflate(ir, -9 * S, -9 * S), Pal.Muted);
+            }
+            int tx = (int)(ir.Right + 12 * S), tw = Width - tx;
+            bool sub = Kind.Length > 0;
+            int th = (int)(20 * S);
+            int ty = sub ? (int)(Height / 2 - th) : (Height - th) / 2;
+            TextRenderer.DrawText(g, Title, Ui.Font(14, Path.Length > 0), new Rectangle(tx, ty, tw, th), Path.Length > 0 ? Pal.Text : Pal.Muted, Ui.Left);
+            if (sub) TextRenderer.DrawText(g, Kind, Ui.Font(12, false), new Rectangle(tx, Height / 2, tw, (int)(18 * S)), Pal.Muted, Ui.Left);
         }
+    }
+
+    // A thin line between parts of a card.
+    class Divider : ThemedControl
+    {
+        protected override void OnPaint(PaintEventArgs e) { e.Graphics.Clear(Pal.Border); }
     }
 
     // Live preview of the ring: click a button to select it, drag it to move it.
@@ -490,35 +298,128 @@ namespace QuickCut
 
         int rrSize;
 
-        // The preview shows the chosen ring size: Large fills the control, the others are smaller.
+        // The scale to draw at: the ring's real size on this monitor (set by the settings window, which
+        // sizes this control to fit). 0 = fit the control.
+        public float RealScale;
+
+        // The preview shows the ring as it really is: its real size, with the panels where they go.
         RingRenderer Renderer
         {
             get
             {
                 float factor = Cfg != null ? Cfg.SizeFactor : 1f;
                 bool vol = Cfg != null && Cfg.VolumeBar, med = Cfg != null && Cfg.MediaBar;
-                // Sized so the largest ring, with its panels, still fits.
-                float tall = 320f + RingRenderer.PanelsExtra(vol, med);
-                // Large fills the space; the smaller sizes stay a step below it (gentler than their real
-                // ratio, so they stay readable), so the sizes still look different.
-                float fit = Math.Min(Width / (320f * 1.02f), Height / (tall * 1.03f));
-                float scale = fit * Math.Min(1f, factor / 1.1f);
-                int want = (int)Math.Round(320 * scale);
-                if (rr == null || rrSize != want || rr.VolumeBar != vol || rr.MediaBar != med)
+                string pos = Cfg != null ? Cfg.PanelPos : "below";
+                // Every mixer app gets a row here, running or not, so you can see where they go.
+                int rows = Cfg != null && vol ? Cfg.MixerApps.Count : 0;
+                SizeF ext = RingRenderer.Extent(vol, med, pos, rows);
+                float fit = Math.Min(Width / (ext.Width * 1.01f), Height / (ext.Height * 1.01f));
+                float scale = RealScale > 0 ? Math.Min(RealScale, fit) : fit * factor;
+                int want = (int)Math.Round(320 * scale * 100);
+                if (rr == null || rrSize != want || rr.VolumeBar != vol || rr.MediaBar != med || rr.PanelPos != pos || rr.AppRows != rows)
                 {
                     if (rr != null) rr.Dispose();
-                    // Panel text and labels near real size, so the preview's text stays readable and sharp.
-                    // Labels at ~10 px came out squeezed together (Windows' hinting at that size), so ~11 px.
-                    rr = new RingRenderer(scale, factor, vol, med, 0.9f * S, 0.96f * S);
+                    rr = new RingRenderer(scale, factor, vol, med, 0, 0, pos, rows);
                     rrSize = want;
                 }
                 return rr;
             }
         }
 
-        protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); Invalidate(); }
+        protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); DropStage(); Invalidate(); }
 
-        PointF Local(Point p) { RingRenderer r = Renderer; return new PointF(p.X - (Width - r.Size) / 2, p.Y - (Height - r.Height) / 2); }
+        // The preview is a "stage": a dotted surface like a desktop, with the ring in its upper part and a
+        // strip at the bottom for a hint (or the toolbar the window puts there).
+        public const float BottomStrip = 64; // unscaled
+        public string Hint = "";
+        Bitmap stage;     // the surface, drawn once per size and theme
+        string stageKey;
+
+        public override void SetPalette(Palette p) { BackColor = p.Stage; DropStage(); base.SetPalette(p); }
+
+        protected override Color BackForParent { get { return Parent != null ? Parent.BackColor : Pal.Window; } }
+
+        void DropStage() { if (stage != null) { stage.Dispose(); stage = null; } }
+
+        int RingAreaHeight { get { return Height - (int)Math.Round(BottomStrip * S); } }
+
+        Point RingOffset(RingRenderer r) { return new Point((Width - r.Width) / 2, Math.Max(0, (RingAreaHeight - r.Height) / 2)); }
+
+        PointF Local(Point p) { RingRenderer r = Renderer; Point o = RingOffset(r); return new PointF(p.X - o.X, p.Y - o.Y); }
+
+        void DrawStage(Graphics g)
+        {
+            string key = Width + "x" + Height + ":" + Pal.Stage.ToArgb() + ":" + Pal.Dark;
+            if (stage == null || stageKey != key)
+            {
+                DropStage();
+                stage = new Bitmap(Math.Max(1, Width), Math.Max(1, Height));
+                using (Graphics sg = Graphics.FromImage(stage))
+                {
+                    sg.Clear(BackForParent);
+                    sg.SmoothingMode = SmoothingMode.AntiAlias;
+                    RectangleF r = new RectangleF(0.5f, 0.5f, Width - 2f, Height - 2f);
+                    using (GraphicsPath p = Round(r, 14 * S))
+                    {
+                        using (SolidBrush b = new SolidBrush(Pal.Stage)) sg.FillPath(b, p);
+                        sg.SetClip(p);
+                        float step = 16 * S, d = 2.4f * S;
+                        using (SolidBrush dot = new SolidBrush(Pal.Dot))
+                            for (float y = step / 2; y < Height; y += step)
+                                for (float x = step / 2; x < Width; x += step)
+                                    sg.FillEllipse(dot, x - d / 2, y - d / 2, d, d);
+                        sg.ResetClip();
+                        using (Pen pen = new Pen(Pal.Border)) sg.DrawPath(pen, p);
+                    }
+                    // Corner marks in the top corners, like a canvas: this is a picture of the ring, not a
+                    // control. (A boxed label here looked like a button.)
+                    using (Pen mark = new Pen(MarkColor, 2 * S) { StartCap = LineCap.Square, EndCap = LineCap.Square })
+                    {
+                        float m = 12 * S, l = 12 * S;
+                        sg.DrawLines(mark, new[] { new PointF(m, m + l), new PointF(m, m), new PointF(m + l, m) });
+                        sg.DrawLines(mark, new[] { new PointF(Width - 1 - m - l, m), new PointF(Width - 1 - m, m), new PointF(Width - 1 - m, m + l) });
+                    }
+                }
+                stageKey = key;
+            }
+            g.DrawImageUnscaled(stage, 0, 0);
+            // "1:1" next to the left mark, straight onto the window (Windows' text smoothing smudges it in a bitmap).
+            TextRenderer.DrawText(g, Str.PreviewOneToOne, Ui.Font(11, false), ScaleLabelRect, MarkColor, Pal.Stage, Ui.Left);
+        }
+
+        Color MarkColor { get { return Theme.Mix(Pal.Stage, Pal.Muted, 0.6f); } }
+        Rectangle ScaleLabelRect { get { return new Rectangle((int)(30 * S), (int)(9 * S), (int)(40 * S), (int)(16 * S)); } }
+
+        // The "1:1" says what it means on hover.
+        readonly ToolTip scaleTip = new ToolTip();
+        bool overScale;
+
+        void UpdateScaleTip(Point p)
+        {
+            bool over = Rectangle.Inflate(new Rectangle(0, 0, (int)(70 * S), (int)(36 * S)), 0, 0).Contains(p);
+            if (over == overScale) return;
+            overScale = over;
+            scaleTip.SetToolTip(this, over ? Str.PreviewChip : null);
+        }
+
+        // The mixer apps' audio, re-read at most once a second (painting happens on every hover).
+        List<AppVolume.AppSessions> live;
+        int liveAt;
+
+        public List<AppVolume.AppSessions> Live()
+        {
+            if (live == null || unchecked(Environment.TickCount - liveAt) > 1000)
+            {
+                live = AppVolume.ForApps(Cfg.MixerApps);
+                liveAt = Environment.TickCount;
+            }
+            return live;
+        }
+
+        RingRenderer.AppRow[] MixerRows() { return RingForm.PreviewRows(Cfg, Live()); }
+
+        // The mixer list changed: read the apps' audio again on the next paint.
+        public void RefreshMixer() { live = null; Invalidate(); }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
@@ -536,6 +437,7 @@ namespace QuickCut
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
+            UpdateScaleTip(e.Location);
             if (dragFrom >= 0 && e.Button == MouseButtons.Left)
             {
                 if (!dragging && (Math.Abs(e.X - pressedAt.X) > 5 * S || Math.Abs(e.Y - pressedAt.Y) > 5 * S)) dragging = true;
@@ -572,11 +474,16 @@ namespace QuickCut
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            Graphics g = Prepare(e);
+            Graphics g = e.Graphics;
+            DrawStage(g);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
             if (Cfg == null) return;
+            if (!string.IsNullOrEmpty(Hint) && !HasVisibleChild())
+                TextRenderer.DrawText(g, Hint, Ui.Font(12, false), new Rectangle(0, RingAreaHeight, Width, (int)Math.Round(BottomStrip * S)), Pal.Muted, Ui.Center);
             RingRenderer r = Renderer;
             // Whole pixels: a half-pixel offset smears every letter and line over two pixels.
-            g.TranslateTransform((Width - r.Size) / 2, (Height - r.Height) / 2);
+            Point o = RingOffset(r);
+            g.TranslateTransform(o.X, o.Y);
             r.Draw(g, Cfg, Pal, hover, selected, false);
             if (r.VolumeBar)
             {
@@ -584,8 +491,15 @@ namespace QuickCut
                 bool ok = Volume.TryGet(out level, out muted);
                 r.DrawVolume(g, Cfg, Pal, RingRenderer.VolNone, ok, level, muted);
             }
+            if (r.AppRows > 0) r.DrawApps(g, Cfg, Pal, MixerRows(), -1, RingRenderer.VolNone);
             // Always drawn here (a placeholder when nothing plays), so you can see where it goes.
             r.DrawMedia(g, Cfg, Pal, RingRenderer.MedNone, Media.Current, true);
+        }
+
+        bool HasVisibleChild()
+        {
+            foreach (Control c in Controls) if (c.Visible) return true;
+            return false;
         }
 
         // Shows the song that's playing, and follows it while the settings are open.
@@ -608,6 +522,8 @@ namespace QuickCut
             {
                 Media.Changed -= OnMediaChanged;
                 if (rr != null) rr.Dispose();
+                scaleTip.Dispose();
+                DropStage();
             }
             base.Dispose(disposing);
         }

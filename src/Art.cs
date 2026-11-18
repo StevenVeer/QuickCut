@@ -52,6 +52,7 @@ namespace QuickCut
 
         public static void DrawItem(Graphics g, RingItem it, RectangleF r, Color col)
         {
+            if (DrawOwnIcon(g, it, r, col)) return;
             if (it.Type == ActionType.Media) { DrawMedia(g, it.Target, r, col); return; }
             if (it.Type == ActionType.Keys) { DrawKeyboard(g, r, col); return; }
             Bitmap bmp = GetIcon(it, (int)r.Width);
@@ -63,6 +64,35 @@ namespace QuickCut
             }
             if (it.Type == ActionType.Url && Actions.IsWebUrl(it.Target)) DrawGlobe(g, r, col);
             else DrawLetter(g, it.Label, r, col);
+        }
+
+        // The button's own icon (RingItem.Icon). False when it has none, or its image is gone: then the
+        // automatic icon shows.
+        public static bool DrawOwnIcon(Graphics g, RingItem it, RectangleF r, Color col)
+        {
+            string icon = it.Icon ?? "";
+            if (icon.Length == 0) return false;
+            if (icon == "letter") { DrawLetter(g, it.Label, r, col); return true; }
+            if (icon.StartsWith(IconStore.Prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                Bitmap b = IconStore.Load(icon);
+                if (b == null) return false;
+                // Kept in its own shape, centered in the icon's square.
+                float k = Math.Min(r.Width / b.Width, r.Height / b.Height);
+                RectangleF fit = new RectangleF(r.X + (r.Width - b.Width * k) / 2, r.Y + (r.Height - b.Height * k) / 2, b.Width * k, b.Height * k);
+                GraphicsState st = g.Save();
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.DrawImage(b, fit);
+                g.Restore(st);
+                return true;
+            }
+            LineIcon line = Icons.Get(icon);
+            if (line == null) return false;
+            // A little inset: line icons fill their whole square, app icons have some air around them.
+            float pad = r.Width * 0.06f;
+            line.Draw(g, RectangleF.Inflate(r, -pad, -pad), col, 2f, false);
+            return true;
         }
 
         public static void DrawMedia(Graphics g, string id, RectangleF r, Color col)

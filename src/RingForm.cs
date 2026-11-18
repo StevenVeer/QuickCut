@@ -19,10 +19,13 @@ namespace QuickCut
         Palette pal;
         float dpi; // scale of the monitor the ring was last shown on
         RingRenderer rr;
-        int size, height; // height includes the volume panel when it's shown
+        int width, height; // the whole window: the ring plus the panels around it
         readonly System.Windows.Forms.Timer fadeTimer, holdTimer, repeatTimer, warmTimer, mediaTimer, scrollTimer;
         int volHover = RingRenderer.VolNone;
         int medHover = RingRenderer.MedNone;
+        // The mixer apps that are running, read when the ring opens: one row each.
+        System.Collections.Generic.List<AppVolume.AppSessions> mixer = new System.Collections.Generic.List<AppVolume.AppSessions>();
+        int appHoverRow = -1, appHoverPart = RingRenderer.VolNone; // RingRenderer.HitApp
         int repeatDir;      // -1 / +1 while - or + is held down
         bool volPressed;    // the current mouse press started on the volume panel
         int holdSource;
@@ -87,7 +90,7 @@ namespace QuickCut
             // While the ring is open, what's playing is re-read every second (the read runs off the UI thread).
             mediaTimer = new System.Windows.Forms.Timer();
             mediaTimer.Interval = 1000;
-            mediaTimer.Tick += delegate { Media.Refresh(); };
+            mediaTimer.Tick += delegate { if (cfg.MediaBar) Media.Refresh(); RefreshMixer(); };
             Media.Changed += OnMediaChanged;
             // Runs only while a too-long title is scrolling; stops itself otherwise.
             scrollTimer = new System.Windows.Forms.Timer();
@@ -134,6 +137,7 @@ namespace QuickCut
             {
                 pal = Palette.Get(cfg);
                 Compose(HitCenter);
+                foreach (MixerApp m in cfg.MixerApps) if (m.Icon.Length > 0) Art.PathIcon(m.Icon, false);
             }
             catch { } // only a head start; the real draw handles any problem
         }
@@ -150,7 +154,8 @@ namespace QuickCut
 
         public void SetConfig(Config c)
         {
-            bool resized = c.SizeFactor != cfg.SizeFactor || c.VolumeBar != cfg.VolumeBar || c.MediaBar != cfg.MediaBar;
+            bool resized = c.SizeFactor != cfg.SizeFactor || c.VolumeBar != cfg.VolumeBar || c.MediaBar != cfg.MediaBar
+                || c.PanelPos != cfg.PanelPos;
             cfg = c;
             Art.ClearIconCache();
             DropBaseLayer();
@@ -167,12 +172,12 @@ namespace QuickCut
         void RebuildRenderer()
         {
             if (rr != null) rr.Dispose();
-            rr = new RingRenderer(dpi * cfg.SizeFactor, cfg.SizeFactor, cfg.VolumeBar, cfg.MediaBar);
-            size = rr.Size;
+            rr = new RingRenderer(dpi * cfg.SizeFactor, cfg.SizeFactor, cfg.VolumeBar, cfg.MediaBar, 0, 0, cfg.PanelPos, mixer.Count);
+            width = rr.Width;
             height = rr.Height;
             if (frame != null) { frame.Dispose(); frame = null; }
             DropBaseLayer();
-            Size = new Size(size, height);
+            Size = new Size(width, height);
         }
 
         public void ShowRing() { ShowRing(HoldNone); }
@@ -184,10 +189,13 @@ namespace QuickCut
             Point m = Cursor.Position;
             // Render at the scale of this monitor, so the ring is sharp on every screen.
             float d = Native.ScaleAt(m);
-            if (d != dpi) { dpi = d; RebuildRenderer(); }
+            // One row per mixer app that's running now; the window grows to fit them.
+            mixer = cfg.VolumeBar ? AppVolume.ForApps(cfg.MixerApps) : new System.Collections.Generic.List<AppVolume.AppSessions>();
+            if (d != dpi || mixer.Count != rr.AppRows) { dpi = d; RebuildRenderer(); }
+            // The ring's center on the cursor; near a screen edge the whole window is pushed back on screen.
             Rectangle wa = Screen.FromPoint(m).WorkingArea;
-            int x = Math.Max(wa.Left, Math.Min(m.X - size / 2, wa.Right - size));
-            int y = Math.Max(wa.Top, Math.Min(m.Y - size / 2, wa.Bottom - height));
+            int x = Math.Max(wa.Left, Math.Min(m.X - (int)Math.Round(rr.Cx), wa.Right - width));
+            int y = Math.Max(wa.Top, Math.Min(m.Y - (int)Math.Round(rr.Cy), wa.Bottom - height));
             Location = new Point(x, y);
             pal = Palette.Get(cfg); // follows Windows light/dark and accent changes
             // Set before the hit test: while holding, HitTest only looks at the direction. Near a
@@ -201,6 +209,7 @@ namespace QuickCut
             StopHoverFade(); // a button under the cursor at open shows lit right away
             volHover = RingRenderer.VolNone;
             medHover = RingRenderer.MedNone;
+            appHoverRow = -1; appHoverPart = RingRenderer.VolNone;
             moved = false;
             alpha = 60;
             warmTimer.Stop();
@@ -217,7 +226,8 @@ namespace QuickCut
             Native.SetWindowPos(Handle, (IntPtr)(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
             fadeTimer.Start();
             if (holding) holdTimer.Start();
-            if (cfg.MediaBar) { Media.Refresh(); mediaTimer.Start(); }
+            if (cfg.MediaBar) Media.Refresh();
+            if (cfg.MediaBar || mixer.Count > 0) mediaTimer.Start(); // also re-reads the app rows
         }
 
         // Called from Media's background thread.
@@ -295,6 +305,14 @@ namespace QuickCut
             int v = holding ? RingRenderer.VolNone : rr.HitVolume(e.Location, cfg.VolumeStep);
             bool volChanged = v != volHover;
             volHover = v;
+            int row = -1;
+            int ap = holding ? RingRenderer.VolNone : rr.HitApp(e.Location, cfg.VolumeStep, out row);
+            if (ap != appHoverPart || row != appHoverRow)
+            {
+                appHoverPart = ap;
+                appHoverRow = row;
+                volChanged = true;
+            }
             int m = holding ? RingRenderer.MedNone : rr.HitMedia(e.Location);
             if (m != medHover)
             {
@@ -312,9 +330,10 @@ namespace QuickCut
         {
             if (!holding)
             {
-                bool volChanged = volHover != RingRenderer.VolNone || medHover != RingRenderer.MedNone;
+                bool volChanged = volHover != RingRenderer.VolNone || medHover != RingRenderer.MedNone || appHoverRow >= 0;
                 volHover = RingRenderer.VolNone;
                 medHover = RingRenderer.MedNone;
+                appHoverRow = -1; appHoverPart = RingRenderer.VolNone;
                 if (!SetHover(HitNone) && volChanged && Visible) Render();
             }
             base.OnMouseLeave(e);
@@ -344,7 +363,8 @@ namespace QuickCut
         void UpdateCursor()
         {
             bool hand = hover != HitNone || volHover == RingRenderer.VolDown || volHover == RingRenderer.VolUp || volHover >= 0
-                || medHover == RingRenderer.MedPrev || medHover == RingRenderer.MedPlay || medHover == RingRenderer.MedNext;
+                || medHover == RingRenderer.MedPrev || medHover == RingRenderer.MedPlay || medHover == RingRenderer.MedNext
+                || appHoverPart == RingRenderer.AppMute || appHoverPart >= 0;
             Cursor = hand ? Cursors.Hand : Cursors.Default;
         }
 
@@ -359,6 +379,15 @@ namespace QuickCut
                 if (med == RingRenderer.MedPrev) Media.Command(Media.Prev);
                 else if (med == RingRenderer.MedPlay) Media.Command(Media.PlayPause);
                 else if (med == RingRenderer.MedNext) Media.Command(Media.Next);
+                return;
+            }
+            int row;
+            int ap = rr.HitApp(e.Location, cfg.VolumeStep, out row);
+            if (ap != RingRenderer.VolNone)
+            {
+                volPressed = true; // like the volume panel: acts on press, the ring stays open
+                if (ap == RingRenderer.AppMute) ToggleAppMute(row);
+                else if (ap >= 0) ClickAppBlock(row, ap);
                 return;
             }
             int v = rr.HitVolume(e.Location, cfg.VolumeStep);
@@ -390,7 +419,102 @@ namespace QuickCut
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
-            StepVolume(e.Delta > 0 ? 1 : -1);
+            // Over an app's row: that app's volume. Anywhere else: the main volume.
+            int row;
+            if (!holding && rr.HitApp(e.Location, cfg.VolumeStep, out row) != RingRenderer.VolNone) StepApp(row, e.Delta > 0 ? 1 : -1);
+            else StepVolume(e.Delta > 0 ? 1 : -1);
+        }
+
+        // ---------- per-app volume ----------
+
+        AppVolume.AppSessions MixerRow(int row) { return row >= 0 && row < mixer.Count ? mixer[row] : null; }
+
+        void StepApp(int row, int dir)
+        {
+            AppVolume.AppSessions a = MixerRow(row);
+            float level; bool muted;
+            if (a == null || !a.TryGet(out level, out muted)) return;
+            a.Set(Volume.NextStep((int)Math.Round(level * 100), cfg.VolumeStep, dir) / 100f);
+            if (Visible) Render();
+        }
+
+        // Same as the main volume: sets the level, and clicking the block it already sits on mutes.
+        void ClickAppBlock(int row, int index)
+        {
+            AppVolume.AppSessions a = MixerRow(row);
+            float level; bool muted;
+            if (a == null || !a.TryGet(out level, out muted)) return;
+            int target = (index + 1) * cfg.VolumeStep;
+            if (!muted && (int)Math.Round(level * 100) == target) a.SetMute(true);
+            else a.Set(target / 100f);
+            Render();
+        }
+
+        void ToggleAppMute(int row)
+        {
+            AppVolume.AppSessions a = MixerRow(row);
+            float level; bool muted;
+            if (a == null || !a.TryGet(out level, out muted)) return;
+            a.SetMute(!muted);
+            Render();
+        }
+
+        // Every app in the mixer list, running or not, for the settings preview; live levels for the
+        // running ones (from `live`, AppVolume.ForApps). Icons are looked up here, never kept: the
+        // icon cache is emptied whenever the settings change.
+        public static RingRenderer.AppRow[] PreviewRows(Config cfg, System.Collections.Generic.List<AppVolume.AppSessions> live)
+        {
+            RingRenderer.AppRow[] rows = new RingRenderer.AppRow[cfg.MixerApps.Count];
+            for (int i = 0; i < rows.Length; i++)
+            {
+                MixerApp m = cfg.MixerApps[i];
+                RingRenderer.AppRow r = new RingRenderer.AppRow();
+                r.Name = m.Name;
+                r.Icon = m.Icon.Length > 0 ? Art.PathIcon(m.Icon, false) : null;
+                if (live != null)
+                    foreach (AppVolume.AppSessions s in live)
+                        if (s.App == m)
+                        {
+                            r.Running = true;
+                            r.Available = s.TryGet(out r.Level, out r.Muted);
+                            if (r.Icon == null) r.Icon = Art.PathIcon(s.ProcessPath, false);
+                        }
+                rows[i] = r;
+            }
+            return rows;
+        }
+
+        // While the ring is open: reads the apps' audio again, so a row comes alive once its app starts
+        // playing. The rows stay as they are (no resizing while open); a new app shows next time.
+        void RefreshMixer()
+        {
+            if (mixer.Count == 0) return;
+            System.Collections.Generic.List<AppVolume.AppSessions> fresh = AppVolume.ForApps(cfg.MixerApps);
+            if (fresh.Count != mixer.Count) return;
+            for (int i = 0; i < fresh.Count; i++) if (fresh[i].App != mixer[i].App) return;
+            mixer = fresh;
+            if (Visible) Render();
+        }
+
+        static RingRenderer.AppRow[] PreviewRows(Config cfg) { return PreviewRows(cfg, AppVolume.ForApps(cfg.MixerApps)); }
+
+        // What the rows show right now.
+        RingRenderer.AppRow[] AppRows()
+        {
+            RingRenderer.AppRow[] rows = new RingRenderer.AppRow[mixer.Count];
+            for (int i = 0; i < rows.Length; i++)
+            {
+                AppVolume.AppSessions a = mixer[i];
+                RingRenderer.AppRow r = new RingRenderer.AppRow();
+                r.Name = a.App.Name;
+                string icon = a.App.Icon.Length > 0 ? a.App.Icon : a.ProcessPath;
+                r.Icon = Art.PathIcon(icon, false);
+                if (r.Icon == null && icon != a.ProcessPath) r.Icon = Art.PathIcon(a.ProcessPath, false);
+                r.Running = true;
+                r.Available = a.TryGet(out r.Level, out r.Muted);
+                rows[i] = r;
+            }
+            return rows;
         }
 
         // ---------- volume ----------
@@ -481,12 +605,12 @@ namespace QuickCut
             if (baseLayer == null || baseKey != key)
             {
                 DropBaseLayer();
-                baseLayer = new Bitmap(size, height, PixelFormat.Format32bppArgb);
+                baseLayer = new Bitmap(width, height, PixelFormat.Format32bppArgb);
                 using (Graphics g = Graphics.FromImage(baseLayer))
                     rr.Draw(g, cfg, pal, HitNone, HitNone, true);
                 baseKey = key;
             }
-            if (frame == null) frame = new Bitmap(size, height, PixelFormat.Format32bppArgb);
+            if (frame == null) frame = new Bitmap(width, height, PixelFormat.Format32bppArgb);
             using (Graphics g = Graphics.FromImage(frame))
             {
                 g.CompositingMode = CompositingMode.SourceCopy;
@@ -502,6 +626,7 @@ namespace QuickCut
                     bool ok = Volume.TryGet(out level, out muted);
                     rr.DrawVolume(g, cfg, pal, volHover, ok, level, muted);
                 }
+                if (rr.AppRows > 0) rr.DrawApps(g, cfg, pal, AppRows(), appHoverRow, appHoverPart);
                 MediaInfo mi = cfg.MediaBar ? Media.Current : null;
                 rr.MediaShown = mi != null;
                 if (mi == null) medHover = RingRenderer.MedNone;
@@ -519,7 +644,7 @@ namespace QuickCut
             IntPtr old = Native.SelectObject(memDc, hBmp);
             try
             {
-                Native.SIZE sz = new Native.SIZE(size, height);
+                Native.SIZE sz = new Native.SIZE(width, height);
                 Native.POINT src = new Native.POINT(0, 0), dst = new Native.POINT(Left, Top);
                 Native.BLENDFUNCTION bf = new Native.BLENDFUNCTION { Op = 0, Flags = 0, Alpha = alpha, Format = 1 };
                 Native.UpdateLayeredWindow(Handle, screenDc, ref dst, ref sz, memDc, ref src, 0, ref bf, 2);
@@ -536,8 +661,8 @@ namespace QuickCut
         // Renders the ring over a grey background into a PNG (used to check the design).
         public static void SavePreview(Config cfg, string path, int hoverIndex)
         {
-            using (RingRenderer r = new RingRenderer(1f, 1f, cfg.VolumeBar, cfg.MediaBar))
-            using (Bitmap outp = new Bitmap(r.Size, r.Height))
+            using (RingRenderer r = new RingRenderer(1f, 1f, cfg.VolumeBar, cfg.MediaBar, 0, 0, cfg.PanelPos, cfg.MixerApps.Count))
+            using (Bitmap outp = new Bitmap(r.Width, r.Height))
             {
                 using (Graphics g = Graphics.FromImage(outp))
                 {
@@ -547,6 +672,7 @@ namespace QuickCut
                     float level; bool muted;
                     bool ok = Volume.TryGet(out level, out muted);
                     if (cfg.VolumeBar) r.DrawVolume(g, cfg, pal, RingRenderer.VolNone, ok, level, muted);
+                    r.DrawApps(g, cfg, pal, PreviewRows(cfg), -1, RingRenderer.VolNone);
                     // Read on a background (MTA) thread, like the ring does: some WinRT calls stall on the UI thread.
                     MediaInfo mi = null;
                     Thread t = new Thread(delegate() { try { mi = MediaWin.Fetch(null); } catch { } });

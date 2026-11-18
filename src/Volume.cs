@@ -11,7 +11,7 @@ namespace QuickCut
 
         static IAudioEndpointVolume Endpoint()
         {
-            if (enumerator == null) enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorCo();
+            if (enumerator == null) enumerator = (IMMDeviceEnumerator)AppVolume.CreateEnumerator(); // see there
             IMMDevice dev;
             if (enumerator.GetDefaultAudioEndpoint(0 /*eRender*/, 1 /*eMultimedia*/, out dev) != 0 || dev == null) return null;
             Guid iid = typeof(IAudioEndpointVolume).GUID;
@@ -70,9 +70,6 @@ namespace QuickCut
             int next = dir > 0 ? percent / step * step + step : (percent + step - 1) / step * step - step;
             return Math.Max(0, Math.Min(100, next));
         }
-
-        [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-        class MMDeviceEnumeratorCo { }
 
         [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         interface IMMDeviceEnumerator

@@ -15,16 +15,23 @@ namespace QuickCut
 
         // Volume panel hits (HitVolume); a value >= 0 is the index of a block.
         public const int VolNone = -1, VolDown = -2, VolUp = -3, VolPanel = -4;
-        public const float PanelExtra = 56; // unscaled height each panel (volume, media) adds below the ring
+
+        // App row hits (HitApp): a block index, VolPanel, or the app's icon (mutes it).
+        public const int AppMute = -5;
 
         // Media panel hits (HitMedia).
         public const int MedNone = -1, MedPanel = -2, MedPrev = -3, MedPlay = -4, MedNext = -5;
 
         public readonly float Sc;
-        public readonly int Size;   // width, and the height of the ring part
-        public readonly int Height; // Size plus the panels that are turned on
+        public readonly int Size;   // width and height of the ring's own square
+        public readonly int Width, Height; // the whole image: the ring plus the panels around it
         public readonly bool VolumeBar, MediaBar;
+        public readonly string PanelPos; // below, above, left, right (Config.PanelPositions)
+        public readonly int AppRows;     // per-app volume rows (only with the volume panel)
         public readonly float Cx, Cy, ROuter, RInner, RCenter;
+        readonly int ringX, ringY;       // top left of the ring's square in the image
+        readonly float panelX, volTop, medTop;
+        readonly float[] rowTop;
         readonly Font labelFont, panelFont, smallFont;
 
         // The media panel only shows (and takes clicks) while something is playing.
@@ -42,13 +49,30 @@ namespace QuickCut
             : this(scale, sizeFactor, volumeBar, mediaBar, minPanelText, 0) { }
 
         public RingRenderer(float scale, float sizeFactor, bool volumeBar, bool mediaBar, float minPanelText, float minLabelText)
+            : this(scale, sizeFactor, volumeBar, mediaBar, minPanelText, minLabelText, "below", 0) { }
+
+        public RingRenderer(float scale, float sizeFactor, bool volumeBar, bool mediaBar, float minPanelText, float minLabelText,
+            string panelPos, int appRows)
         {
             Sc = scale;
             Size = (int)Math.Round(320 * scale);
             VolumeBar = volumeBar;
             MediaBar = mediaBar;
-            Height = (int)Math.Round((320 + (volumeBar ? PanelExtra : 0) + (mediaBar ? PanelExtra : 0)) * scale);
-            Cx = Cy = Size / 2f;
+            PanelPos = panelPos ?? "below";
+            AppRows = volumeBar ? Math.Max(0, appRows) : 0;
+            Place pl = Arrange(volumeBar, mediaBar, PanelPos, AppRows);
+            Width = (int)Math.Round(pl.W * scale);
+            Height = (int)Math.Round(pl.H * scale);
+            ringX = (int)Math.Round(pl.RingX * scale);
+            ringY = (int)Math.Round(pl.RingY * scale);
+            Cx = ringX + Size / 2f;
+            Cy = ringY + Size / 2f;
+            // Above and below: centered under the ring, as before. Beside it: a small gap from the ring's edge.
+            panelX = PanelPos == "right" ? ringX + Size + 2 * scale : PanelPos == "left" ? 4 * scale : Cx - PanelW / 2 * scale;
+            volTop = pl.VolY * scale;
+            medTop = pl.MedY * scale;
+            rowTop = new float[AppRows];
+            for (int i = 0; i < AppRows; i++) rowTop[i] = pl.RowY[i] * scale;
             ROuter = 148 * scale;
             bool small = sizeFactor < 1f;
             // On Small: a narrower gap around the center, and text that shrinks less than the ring
@@ -62,10 +86,76 @@ namespace QuickCut
             smallFont = new Font("Segoe UI", 11.5f * panelScale, GraphicsUnit.Pixel);
         }
 
-        // Unscaled panel height + gap, for sizing the settings preview.
-        public static float PanelsExtra(bool volumeBar, bool mediaBar)
+        // ---------- layout ----------
+
+        // Unscaled sizes: the ring's square is 320, panels are 268 wide, with 6 between them.
+        const float PanelW = 268, PanelH = 50, RowH = 36, Gap = 6;
+
+        // Where everything goes, unscaled.
+        struct Place { public float W, H, RingX, RingY, VolY, MedY; public float[] RowY; }
+
+        // The panels form one stack, nearest the ring first: the volume, the app rows, the song.
+        // Below / above: the stack runs down from / up from the ring. Left / right: the volume part is
+        // centered beside the ring and the song panel hangs under it, so the rows stay put when a song
+        // starts or stops (the song panel's space is kept either way).
+        static Place Arrange(bool vol, bool med, string pos, int rows)
         {
-            return (volumeBar ? PanelExtra : 0) + (mediaBar ? PanelExtra : 0);
+            Place p = new Place();
+            p.W = p.H = 320;
+            p.VolY = p.MedY = -1000;
+            p.RowY = new float[rows];
+            int n = (vol ? 1 : 0) + rows + (med ? 1 : 0);
+            if (n == 0) return p;
+            float[] h = new float[n], top = new float[n];
+            int[] kind = new int[n]; // -1 volume, -2 song, >= 0 app row
+            int k = 0;
+            if (vol) { kind[k] = -1; h[k++] = PanelH; }
+            for (int i = 0; i < rows; i++) { kind[k] = i; h[k++] = RowH; }
+            if (med) { kind[k] = -2; h[k++] = PanelH; }
+
+            if (pos == "left" || pos == "right")
+            {
+                int core = med && n > 1 ? n - 1 : n;
+                float coreH = -Gap;
+                for (int i = 0; i < core; i++) coreH += h[i] + Gap;
+                float cy = Math.Max(160, coreH / 2 + 4);
+                float y = cy - coreH / 2;
+                for (int i = 0; i < n; i++) { top[i] = y; y += h[i] + Gap; }
+                p.RingY = cy - 160;
+                p.H = Math.Max(cy + 160, y - Gap + 4);
+                // The ring's circle is 12 in from its square: 14 between the ring and the panels.
+                p.W = 320 + 2 + PanelW + 4;
+                p.RingX = pos == "left" ? 4 + PanelW + 2 : 0;
+            }
+            else if (pos == "above")
+            {
+                float stack = 0;
+                for (int i = 0; i < n; i++) stack += h[i] + Gap;
+                float y = stack - 2;
+                for (int i = 0; i < n; i++) { y -= h[i]; top[i] = y; y -= Gap; }
+                p.RingY = stack;
+                p.H = stack + 320;
+            }
+            else
+            {
+                float y = 322;
+                for (int i = 0; i < n; i++) { top[i] = y; y += h[i] + Gap; }
+                p.H = y - 2;
+            }
+            for (int i = 0; i < n; i++)
+            {
+                if (kind[i] == -1) p.VolY = top[i];
+                else if (kind[i] == -2) p.MedY = top[i];
+                else p.RowY[kind[i]] = top[i];
+            }
+            return p;
+        }
+
+        // Unscaled size of the whole image, for sizing the settings preview.
+        public static SizeF Extent(bool volumeBar, bool mediaBar, string panelPos, int appRows)
+        {
+            Place p = Arrange(volumeBar, mediaBar, panelPos ?? "below", volumeBar ? appRows : 0);
+            return new SizeF(p.W, p.H);
         }
 
         // directional: only the angle matters (used while holding the trigger).
@@ -84,15 +174,18 @@ namespace QuickCut
         public bool Contains(PointF p)
         {
             float dx = p.X - Cx, dy = p.Y - Cy;
-            return dx * dx + dy * dy <= ROuter * ROuter || (VolumeBar && PanelRect.Contains(p))
-                || (MediaBar && MediaShown && MediaRect.Contains(p));
+            if (dx * dx + dy * dy <= ROuter * ROuter || (VolumeBar && PanelRect.Contains(p))
+                || (MediaBar && MediaShown && MediaRect.Contains(p))) return true;
+            for (int i = 0; i < AppRows; i++) if (RowRect(i).Contains(p)) return true;
+            return false;
         }
 
         // ---------- volume panel ----------
 
-        RectangleF PanelRect { get { return new RectangleF(Cx - 134 * Sc, Size + 2 * Sc, 268 * Sc, 50 * Sc); } }
-        PointF MinusAt { get { return new PointF(Cx - 110 * Sc, PanelRect.Top + 25 * Sc); } }
-        PointF PlusAt { get { return new PointF(Cx + 110 * Sc, PanelRect.Top + 25 * Sc); } }
+        RectangleF PanelRect { get { return new RectangleF(panelX, volTop, PanelW * Sc, PanelH * Sc); } }
+        float PanelCx { get { return panelX + PanelW / 2 * Sc; } }
+        PointF MinusAt { get { return new PointF(PanelCx - 110 * Sc, PanelRect.Top + 25 * Sc); } }
+        PointF PlusAt { get { return new PointF(PanelCx + 110 * Sc, PanelRect.Top + 25 * Sc); } }
 
         // One block per step: 20 blocks for 5%, 10 for 10%.
         void BlockLayout(int step, out int count, out float x0, out float bw, out float gap)
@@ -100,7 +193,7 @@ namespace QuickCut
             count = 100 / step;
             gap = (count > 10 ? 2.5f : 4f) * Sc;
             float area = 172 * Sc;
-            x0 = Cx - area / 2;
+            x0 = PanelCx - area / 2;
             bw = (area - gap * (count - 1)) / count;
         }
 
@@ -187,12 +280,172 @@ namespace QuickCut
         // see-through window gets. That only works on opaque pixels, so the panels are drawn fully opaque.
         const TextRenderingHint PanelText = TextRenderingHint.ClearTypeGridFit;
 
+        // ---------- app rows (per-app volume) ----------
+
+        // What one row shows. Running: the app is open (always in the ring; the settings preview also
+        // shows apps that aren't). Available: it has sound to control (it has played something).
+        public class AppRow
+        {
+            public string Name = "";
+            public Bitmap Icon; // may be null: a letter is drawn instead
+            public bool Running, Available;
+            public float Level; // 0..1
+            public bool Muted;
+        }
+
+        RectangleF RowRect(int i) { return new RectangleF(panelX, rowTop[i], PanelW * Sc, RowH * Sc); }
+        RectangleF RowIconRect(RectangleF r) { return new RectangleF(r.X + 7 * Sc, r.Y + 5 * Sc, 26 * Sc, 26 * Sc); }
+
+        // One block per step, in a smaller area than the main volume.
+        void RowBlocks(RectangleF r, int step, out int count, out float x0, out float bw, out float gap)
+        {
+            count = 100 / step;
+            gap = (count > 10 ? 2f : 3f) * Sc;
+            float area = 100 * Sc;
+            x0 = r.X + 120 * Sc;
+            bw = (area - gap * (count - 1)) / count;
+        }
+
+        // row: which row the point is on (-1 = none). Returns VolNone, AppMute, VolPanel or a block index.
+        public int HitApp(PointF p, int step, out int row)
+        {
+            row = -1;
+            for (int i = 0; i < AppRows; i++)
+            {
+                RectangleF r = RowRect(i);
+                if (!r.Contains(p)) continue;
+                row = i;
+                RectangleF ir = RowIconRect(r);
+                ir.Inflate(3 * Sc, 5 * Sc);
+                if (ir.Contains(p)) return AppMute;
+                int count; float x0, bw, gap;
+                RowBlocks(r, step, out count, out x0, out bw, out gap);
+                if (p.X >= x0 - gap / 2 - 4 * Sc && p.X < x0 + count * (bw + gap) - gap / 2 + 4 * Sc)
+                    return Math.Max(0, Math.Min(count - 1, (int)((p.X - x0 + gap / 2) / (bw + gap))));
+                return VolPanel;
+            }
+            return VolNone;
+        }
+
+        // hotRow / hotPart: what the mouse is on (HitApp), for the icon's hover look.
+        public void DrawApps(Graphics g, Config cfg, Palette pal, AppRow[] rows, int hotRow, int hotPart)
+        {
+            if (rows == null) return;
+            Color track = Theme.Mix(pal.Ring, pal.Text, pal.Dark ? 0.16f : 0.14f);
+            Color rimColor = pal.Dark ? Color.FromArgb(45, 255, 255, 255) : Color.FromArgb(30, 0, 0, 0);
+            for (int i = 0; i < AppRows && i < rows.Length; i++)
+            {
+                AppRow a = rows[i];
+                RectangleF r = RowRect(i);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (GraphicsPath p = ThemedControl.Round(r, 10 * Sc))
+                {
+                    using (SolidBrush b = new SolidBrush(pal.Ring)) g.FillPath(b, p); // opaque: see PanelText
+                    using (Pen rim = new Pen(rimColor, Sc)) g.DrawPath(rim, p);
+                }
+
+                // Icon; on hover a soft accent tile behind it (clicking mutes).
+                RectangleF ir = RowIconRect(r);
+                if (i == hotRow && hotPart == AppMute)
+                    using (GraphicsPath p = ThemedControl.Round(ir, 6 * Sc))
+                    using (SolidBrush b = new SolidBrush(Theme.Mix(pal.Ring, pal.Accent, 0.45f))) g.FillPath(b, p);
+                RectangleF icon = new RectangleF(ir.X + 3 * Sc, ir.Y + 3 * Sc, 20 * Sc, 20 * Sc);
+                bool off = a.Muted || !a.Available;
+                DrawRowIcon(g, a, icon, off ? 0.4f : 1f, track, pal);
+                if (a.Muted)
+                    using (Pen slash = new Pen(pal.Text, 1.8f * Sc) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+                        g.DrawLine(slash, icon.Left + 1 * Sc, icon.Bottom - 1 * Sc, icon.Right - 1 * Sc, icon.Top + 1 * Sc);
+
+                int count; float x0, bw, gap;
+                RowBlocks(r, cfg.VolumeStep, out count, out x0, out bw, out gap);
+
+                // Name
+                g.TextRenderingHint = PanelText;
+                using (StringFormat sf = new StringFormat(StringFormat.GenericTypographic))
+                using (SolidBrush tb = new SolidBrush(off ? pal.Muted : pal.Text))
+                {
+                    sf.FormatFlags |= StringFormatFlags.NoWrap;
+                    sf.Trimming = StringTrimming.EllipsisCharacter;
+                    float fh = smallFont.GetHeight(g), tx = ir.Right + 6 * Sc;
+                    g.DrawString(a.Name, smallFont, tb, new RectangleF(tx, r.Y + r.Height / 2 - fh / 2, x0 - 8 * Sc - tx, fh + 1), sf);
+                }
+
+                // No sound to control yet: say why, where the blocks would be.
+                if (!a.Available)
+                {
+                    g.TextRenderingHint = PanelText;
+                    using (StringFormat sf = new StringFormat(StringFormatFlags.NoWrap) { Alignment = StringAlignment.Far, Trimming = StringTrimming.EllipsisCharacter })
+                    using (SolidBrush tb = new SolidBrush(pal.Muted))
+                    {
+                        float fh = smallFont.GetHeight(g);
+                        g.DrawString(a.Running ? Str.AppWaiting : Str.AppNotRunning, smallFont, tb,
+                            new RectangleF(x0 - 10 * Sc, r.Y + r.Height / 2 - fh / 2, r.Right - 9 * Sc - (x0 - 10 * Sc), fh + 1), sf);
+                    }
+                    continue;
+                }
+
+                // Blocks, growing a little in height, like the main volume
+                float v = a.Available && !a.Muted ? a.Level : 0, bottom = r.Y + 25 * Sc, rad = (count > 10 ? 1.2f : 2f) * Sc;
+                for (int b = 0; b < count; b++)
+                {
+                    float h = (6 + b * 8f / (count - 1)) * Sc, x = x0 + b * (bw + gap);
+                    RectangleF br = new RectangleF(x, bottom - h, bw, h);
+                    using (GraphicsPath p = ThemedControl.Round(br, rad))
+                    using (SolidBrush sb = new SolidBrush(track)) g.FillPath(sb, p);
+                    float lit = Math.Max(0, Math.Min(1, v * count - b));
+                    if (lit > 0.02f)
+                        using (GraphicsPath p = ThemedControl.Round(new RectangleF(x, br.Y, bw * lit, h), Math.Min(rad, bw * lit / 2)))
+                        using (SolidBrush sb = new SolidBrush(pal.Accent)) g.FillPath(sb, p);
+                }
+
+                // Level on the right
+                string text = !a.Available ? "–" : a.Muted ? Str.VolumeMuted : string.Format(Str.AppLevel, (int)Math.Round(a.Level * 100));
+                g.TextRenderingHint = PanelText;
+                using (StringFormat sf = new StringFormat(StringFormatFlags.NoWrap) { Alignment = StringAlignment.Far })
+                using (SolidBrush tb = new SolidBrush(off ? pal.Muted : Theme.Mix(pal.Text, pal.Ring, 0.3f)))
+                {
+                    float fh = smallFont.GetHeight(g), left = x0 + count * (bw + gap);
+                    g.DrawString(text, smallFont, tb, new RectangleF(left, r.Y + r.Height / 2 - fh / 2, r.Right - 9 * Sc - left, fh + 1), sf);
+                }
+            }
+        }
+
+        void DrawRowIcon(Graphics g, AppRow a, RectangleF r, float opacity, Color tile, Palette pal)
+        {
+            if (a.Icon != null)
+            {
+                GraphicsState st = g.Save();
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                if (opacity >= 1) g.DrawImage(a.Icon, r);
+                else
+                    using (ImageAttributes ia = new ImageAttributes())
+                    {
+                        ColorMatrix cm = new ColorMatrix();
+                        cm.Matrix33 = opacity;
+                        ia.SetColorMatrix(cm);
+                        g.DrawImage(a.Icon, Rectangle.Round(r), 0, 0, a.Icon.Width, a.Icon.Height, GraphicsUnit.Pixel, ia);
+                    }
+                g.Restore(st);
+                return;
+            }
+            // No icon: the first letter on a plain tile.
+            using (GraphicsPath p = ThemedControl.Round(r, 5 * Sc))
+            using (SolidBrush b = new SolidBrush(tile)) g.FillPath(b, p);
+            string ch = a.Name.Length > 0 ? a.Name.Substring(0, 1).ToUpperInvariant() : "?";
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            using (Font f = new Font("Segoe UI Semibold", r.Height * 0.55f, GraphicsUnit.Pixel))
+            using (SolidBrush b = new SolidBrush(Color.FromArgb((int)(255 * opacity), pal.Text)))
+            using (StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                g.DrawString(ch, f, b, r, sf);
+        }
+
         // ---------- media panel ----------
 
-        // Right under the volume panel, or in its place when volume is off.
+        // At the far end of the stack: after the volume and the app rows (see Arrange).
         RectangleF MediaRect
         {
-            get { return new RectangleF(Cx - 134 * Sc, Size + 2 * Sc + (VolumeBar ? PanelExtra * Sc : 0), 268 * Sc, 50 * Sc); }
+            get { return new RectangleF(panelX, medTop, PanelW * Sc, PanelH * Sc); }
         }
 
         PointF MediaBtnAt(int which) // 0 prev, 1 play/pause, 2 next
@@ -538,7 +791,7 @@ namespace QuickCut
                 g.SmoothingMode = SmoothingMode.None;
                 g.CompositingMode = CompositingMode.SourceCopy;
                 // A rectangle through the clip, not FillRegion: that can disagree with the clip on edge pixels.
-                using (SolidBrush clear = new SolidBrush(Color.Transparent)) g.FillRectangle(clear, -1, -1, Size + 2, Height + 2);
+                using (SolidBrush clear = new SolidBrush(Color.Transparent)) g.FillRectangle(clear, -1, -1, Width + 2, Height + 2);
                 g.CompositingMode = CompositingMode.SourceOver;
                 DrawBackground(g, pal, shadow);
                 // Lit buttons are drawn whole; their neighbours only inside the wiped area.
@@ -566,7 +819,7 @@ namespace QuickCut
                 inner.AddEllipse(Cx - rs, Cy - rs, 2 * rs, 2 * rs);
                 if (hover == HitCenter) return new Region(inner);
                 Region r;
-                if (L.N == 1) r = new Region(new RectangleF(0, 0, Size, Size));
+                if (L.N == 1) r = new Region(new RectangleF(ringX, ringY, Size, Size));
                 else
                     using (GraphicsPath wedge = new GraphicsPath())
                     {
